@@ -9,7 +9,7 @@ import picker
 from market_quality import MarketDataQualityError, validate_market_data
 
 
-def quotes(n=1200):
+def quotes(n=3500):
     codes = [f"{i:06d}" for i in range(1, n + 1)]
     return pd.DataFrame({
         "代码": codes,
@@ -30,7 +30,7 @@ def quotes(n=1200):
 class DataQualityTests(unittest.TestCase):
     def test_complete_market_validates_and_is_json_safe(self):
         q = validate_market_data(quotes(), "A股", "fixture")
-        self.assertEqual(q["有效股票数"], 1200)
+        self.assertEqual(q["有效股票数"], 3500)
         self.assertEqual(q["字段有效覆盖率%"]["流通市值"], 100.0)
         json.dumps(q)
 
@@ -59,11 +59,11 @@ class DataQualityTests(unittest.TestCase):
             validate_market_data(bad, "A股", "infinite")
 
     def test_hk_market(self):
-        self.assertEqual(validate_market_data(quotes(500), "港股", "fixture")["有效股票数"], 500)
+        self.assertEqual(validate_market_data(quotes(1500), "港股", "fixture")["有效股票数"], 1500)
 
     def test_picker_retains_weight_formulas(self):
         ranked = picker.score_a(quotes())
-        self.assertEqual(len(ranked), 1200)
+        self.assertEqual(len(ranked), 3500)
         self.assertGreater(ranked["评分"].nunique(), 10)
         self.assertAlmostEqual(
             float(ranked.iloc[0]["评分"]),
@@ -89,7 +89,7 @@ class DataQualityTests(unittest.TestCase):
         ), patch.object(picker.time, "sleep", return_value=None):
             result = picker.fetch_market("A股", [], "", "A", lambda: good, lambda: bad)
             self.assertEqual(result.attrs["quality"]["行情来源"], "AKShare 东财")
-            self.assertEqual(len(result), 1200)
+            self.assertEqual(len(result), 3500)
 
     def test_bad_source_never_publishes_fake_scores(self):
         bad = quotes().drop(columns=["流通市值"])
