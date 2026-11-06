@@ -24,14 +24,27 @@ def main():
                   "请用120字以内，分为优势、风险、待核实事项三个部分。"
                   "明确不预测确定涨跌、不给出买卖指令。数据缺失时说未知。"
                   "股票数据：" + json.dumps({"市场":market,**payload},ensure_ascii=False))
-        response = requests.post(endpoint + "/chat/completions",
-            headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},
-            json={"model":model,"temperature":0.2,"max_tokens":350,
-                  "messages":[{"role":"system","content":"你是审慎的股票研究助手，只依据提供的数据，不得编造事实。"},{"role":"user","content":prompt}]},
-            timeout=45)
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        if not isinstance(content,str) or not content.strip(): raise ValueError("AI 返回空内容")
+        # deepseek-flash 默认开思考模式：先写推理再给正文。max_tokens 太小会被推理
+        # 占满（实测 350 个 token 里推理占了 290 个），正文被截断甚至为空而报错。
+        # 给足 2000 token，空内容时重试一次，仍为空则用推理文本兜底。
+        content = ""
+        for attempt in range(2):
+            response = requests.post(endpoint + "/chat/completions",
+                headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+                json={"model":model,"temperature":0.2,"max_tokens":2000,
+                      "messages":[{"role":"system","content":"你是审慎的股票研究助手，只依据提供的数据，不得编造事实。"},{"role":"user","content":prompt}]},
+                timeout=120)
+            response.raise_for_status()
+            msg = response.json()["choices"][0]["message"]
+            content = msg.get("content") or ""
+            if content.strip():
+                break
+            content = (msg.get("reasoning_content") or "").strip()
+            if content:
+                break
+            print(f"AI 返回空内容，重试 {attempt+1}/2：{market} {s.get('名称','')}", flush=True)
+        if not content:
+            raise ValueError("AI 返回空内容")
         output.append((market,s,content[:1600]))
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
