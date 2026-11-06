@@ -416,7 +416,7 @@ def main():
     # AI 报告页由 ai_report.py 在选股之后生成；榜单页只在 ai.html 已存在时才放链接，
     # 否则显示待开启提示（首次开启 AI 的那次运行，链接从下一次运行开始出现）。
     if os.path.exists(os.path.join(out_dir, "ai.html")):
-        ai_link = '<p class="sub">📝 <a href="./ai.html">查看 AI 深度分析</a>（每边前 5 只，DeepSeek 生成，仅供参考）</p>'
+        ai_link = ''
     else:
         ai_link = '<p class="sub">📝 AI 深度分析待配置 DeepSeek 密钥后开启。</p>'
     html = HTML_HEAD.replace("{updated}", updated)
