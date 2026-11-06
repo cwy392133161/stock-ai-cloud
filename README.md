@@ -21,10 +21,13 @@ Pages 要求公开仓库；选股结果将公开可见），点 **Create reposit
 ```
 stock-ai-cloud/
 ├── picker.py                        选股脚本
+├── ai_report.py                     AI 深度分析（可选，需 DeepSeek 密钥）
 ├── requirements.txt                 依赖（akshare）
 ├── README.md                        本说明
 ├── docs/
-│   └── index.html                   榜单网页（首次运行后自动覆盖）
+│   ├── index.html                   榜单网页（首次运行后自动覆盖）
+│   ├── data.json                    榜单数据（供 AI 报告读取）
+│   └── ai.html                      AI 深度分析页（开启后自动生成）
 └── .github/
     └── workflows/
         └── daily.yml                每天 17:10 自动运行
@@ -61,6 +64,37 @@ iPhone Safari 打开后点 **分享 → 添加到主屏幕**，以后像 App 一
   偶有限流，单次运行失败属于正常现象，重跑通常能恢复
 - 每只入选股票附中文入选原因和风险提示（如追高、情绪过热、估值偏高）
 
+## AI 深度分析（可选，二期）
+
+选股榜本身仍是规则化打分（Top 20 不变）。开启后，每天在选股结束时，
+`ai_report.py` 只取榜单每边前 5 只（共 10 只），调用 DeepSeek 大模型，
+按"优势 / 风险 / 待核实事项"各写一段约 120 字的中文短评，生成
+`docs/ai.html`，榜单页顶部会出现"查看 AI 深度分析"链接。
+
+注意：AI 只看得到当天的行情快照（价格、涨跌幅、评分、换手率、入选原因），
+**不读新闻、财报和公告**，也不会预测涨跌、给出买卖指令；内容可能出错，
+仅供参考，不构成投资建议。
+
+### 开启方法（4 项配置）
+
+去仓库 **Settings → Secrets and variables → Actions**：
+
+| 配置项 | 放在哪里 | 值 |
+| --- | --- | --- |
+| `AI_API_KEY` | Secrets（点 New repository secret） | 去 platform.deepseek.com 注册并充值后创建的 API 密钥 |
+| `AI_ENABLED` | Variables（点 New repository variable） | `true` |
+| `AI_BASE_URL` | Variables | `https://api.deepseek.com` |
+| `AI_MODEL` | Variables | `deepseek-flash`（最便宜，约 ¥0.033 / 百万 Tokens 起） |
+
+配好后去 **Actions → Daily stock screening and Pages → Run workflow**
+手动跑一次，等几分钟，打开榜单页看链接，或直接访问
+`https://你的GitHub用户名.github.io/stock-ai-cloud/ai.html`。
+
+费用：每天 10 次调用，按 deepseek-flash 计价，每月约 ¥5–10 元；
+请在 DeepSeek 后台自行设置用量上限，避免超支。
+关闭：把 `AI_ENABLED` 改回 `false` 再跑一次工作流即可；
+关闭后榜单不受影响，旧的 ai.html 会保留到下一次运行。
+
 ## 常见问题
 
 **定时任务没跑 / 延迟？**
@@ -78,8 +112,3 @@ GitHub 官方说明：定时工作流可能延迟；公开仓库长期没有活�
 **页面显示的还是旧结果？**
 先看页面顶部的更新时间。工作日 17:10 运行，若失败则保留上一次结果，
 属于正常现象。
-
-**能接真正的大模型深度分析吗？**
-可以作为下一阶段升级：每天只对评分靠前的 10～20 只股票调用大模型
-API，研究财报、新闻和风险。免费额度用完后会产生费用，需另外配置，
-基础版请先跑稳。
