@@ -17,9 +17,6 @@ def main():
     data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
     stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
     if not stocks: raise ValueError("没有有效选股数据")
-    # Cost guard: 1-5 stocks per market, default 3 (6 API calls per run).
-    per_market = max(1, min(5, int(os.getenv("AI_TOP_PER_MARKET", "3"))))
-    stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:per_market]]
     output = []
     for market, s in stocks:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
@@ -52,7 +49,7 @@ def main():
              '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;white-space:pre-wrap;line-height:1.7}small{color:#666}</style>',
              '<h1>AI 股票研究（实验版）</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
-             '<p>每个市场分析数量受成本上限控制；未接入新闻、财报和公告，财务经营事实需另行核实。AI 可能出错，研究内容不构成投资建议。</p>']
+             '<p>每天分析 A 股前5只、港股前5只，共10只；未接入新闻、财报和公告，财务经营事实需另行核实。AI 可能出错，研究内容不构成投资建议。</p>']
     for market,s,content in output:
         parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(s.get("代码",""))+')</b><p>'+esc(content)+'</p></article>')
     parts.append('</html>')
