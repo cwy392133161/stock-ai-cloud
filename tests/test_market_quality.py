@@ -83,6 +83,27 @@ class DataQualityTests(unittest.TestCase):
 
     def test_hk_market(self):
         self.assertEqual(validate_market_data(quotes(1500), "港股", "fixture")["有效股票数"], 1500)
+    def test_hk_80_pct_turnover_coverage_is_acceptable(self):
+        frame = quotes(1500)
+        # Live HKEX-wide feed has ~80% nonzero trade turnover.
+        frame.loc[:299, "成交额"] = 0
+        report = validate_market_data(frame, "港股", "东财直连")
+        self.assertEqual(report["字段有效覆盖率%"]["成交额"], 80.0)
+        # Existing 10m HKD eligibility threshold still excludes those rows.
+        self.assertEqual(len(picker.score_hk(frame)), 1200)
+
+    def test_hk_70_pct_turnover_coverage_still_rejected(self):
+        frame = quotes(1500)
+        frame.loc[:449, "成交额"] = 0
+        with self.assertRaisesRegex(MarketDataQualityError, "成交额"):
+            validate_market_data(frame, "港股", "异常行情")
+
+    def test_a_share_turnover_80_pct_still_rejected(self):
+        frame = quotes(3500)
+        frame.loc[:699, "成交额"] = 0
+        with self.assertRaisesRegex(MarketDataQualityError, "成交额"):
+            validate_market_data(frame, "A股", "异常行情")
+
 
     def test_picker_retains_weight_formulas(self):
         ranked = picker.score_a(quotes())
