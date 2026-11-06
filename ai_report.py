@@ -1,12 +1,23 @@
-# Optional LLM research layer. Uses only the existing ranked data; no news or filings are fetched.
+# Optional research layer for the existing ranked stocks.
 import os, json, html, pathlib, requests
+import re
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 
 from finance import fetch_financial
+from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
 def esc(v): return html.escape(str(v), quote=True)
+
+def display_metric(value):
+    """Group digits for display without rounding the source value or changing units."""
+    number, separator, unit = str(value).partition(" ")
+    if separator and re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", number):
+        return f"{Decimal(number):,f} {unit}"
+    return str(value)
+
 
 def finance_html(finance):
     lines = []
@@ -14,10 +25,54 @@ def finance_html(finance):
         if isinstance(value, dict):
             for label, detail in value.items():
                 prefix = "缺失 · " if key == "缺失" else ""
-                lines.append(esc(prefix + label) + "：" + esc(detail))
+                text = display_metric(detail) if key == "指标" else detail
+                lines.append(esc(prefix + label) + "：" + esc(text))
         else:
             lines.append(esc(key) + "：" + esc(value))
     return '<small>财务数据<br>' + '<br>'.join(lines) + '</small>'
+
+
+def finance_summary(market, reports):
+    products = sum(f.get("状态") == "公司财务分析不适用" for f in reports)
+    applicable = len(reports) - products
+    covered = [f for f in reports if f.get("指标") and f.get("状态") != "公司财务分析不适用"]
+    partial = sum(bool(f.get("缺失")) or f.get("状态") == "部分可用" for f in covered)
+    message = (f"{market}：{len(covered)}/{applicable} 家公司取得指标"
+               f"（完整 {len(covered) - partial}，部分 {partial}，无可用指标 {applicable - len(covered)}），"
+               f"产品不适用 {products} 只")
+    return message, bool(applicable and not covered)
+
+
+def render_report(data, output, updated, archived_codes=()):
+    summaries = [finance_summary(market, [f for m, _, _, f in output if m == market])[0]
+                 for market in ("A股", "港股")]
+    parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
+             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;white-space:pre-wrap;line-height:1.7}small{color:#666}</style>',
+             '<h1>AI 股票研究（实验版）</h1><p><a href="./">返回选股榜</a></p>',
+             '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
+             '<p>每天分析 A 股前5只、港股前5只，共10只；已尝试接入东方财富财务指标（第三方，按报告期展示）；未接入公告原文，所有财务数字仍需以正式披露核实。AI 可能出错，研究内容不构成投资建议。</p>']
+    parts.append('<section><h2>财务数据覆盖</h2><ul>' +
+                 ''.join('<li>' + esc(summary) + '</li>' for summary in summaries) + '</ul></section>')
+    for market,s,content,finance in output:
+        code = str(s.get("代码", ""))
+        # 可直接核对的交易所披露网站，不假定已取得公司财报。
+        if market == "A股":
+            source = "https://www.cninfo.com.cn/new/index"
+            source_name = "巨潮资讯：检索公司公告和财报"
+        else:
+            source = "https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh"
+            source_name = "港交所披露易：检索公司公告和财报"
+        parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
+        query_code = re.sub(r"^(?:sh|sz|bj)(?=[0-9]{6}$)", "", code, flags=re.I) if market == "A股" else code
+        parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(query_code)+' 查询，核对报告期和披露日期）</p>')
+        parts.append(finance_html(finance))
+        narrative = '<p>' + esc(content) + '</p>'
+        if (market, code) in archived_codes:
+            narrative = ('<details><summary>原 AI 分析（生成后已更新财务数据）</summary>'
+                         + narrative + '</details>')
+        parts.append(narrative + '</article>')
+    parts.append('</html>')
+    return "\n".join(parts)
 
 
 def main():
@@ -33,10 +88,21 @@ def main():
     stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
     if len(stocks) != 10: raise ValueError(f"预期 A 股和港股各5只，共10只；实际只有 {len(stocks)} 只，拒绝发布不完整报告")
     output = []
-    # 仅展示可核对的官方财务信息入口，不把未经验证的接口数据当作事实。
+    snapshots = []
+    directory = stock_directory()
     for market, s in stocks:
+        finance = fetch_financial(market, s.get("代码", ""), s.get("名称", ""), data["updated"][:10],
+                                  directory=directory)
+        snapshots.append((market, s, finance))
+        print(f"财务查询 {market} {s.get('代码', '')}：{finance['状态']}，"
+              f"{len(finance.get('指标', {}))} 项，报告期 {finance.get('报告期', '—')}", flush=True)
+    for market in ("A股", "港股"):
+        summary, all_missing = finance_summary(market, [f for m, _, f in snapshots if m == market])
+        # Fixed market names and counts only in Actions annotations.
+        prefix = "::warning::" if all_missing and os.getenv("GITHUB_ACTIONS") == "true" else ""
+        print(prefix + summary, flush=True)
+    for market, s, finance in snapshots:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
-        finance = fetch_financial(market, s.get("代码", ""), s.get("名称", ""), data["updated"][:10])
         prompt = ("你只能使用下列快照数据，不得补充未提供的财务数字、行业事实、新闻、公告、财报或市盈率。提供的财务指标仅来自第三方数据接口，必须标明报告期，不能当作最新实时数据；缺失则明确未知。"
                   "标明公司财务不适用的产品只分析产品行情，勿讨论公司财务。只采用标为可用的指标并保留币种和期间，勿解读异常 ROE 为经营改善。"
                   "请用120字以内，分为优势、风险、待核实事项三个部分。"
@@ -60,31 +126,12 @@ def main():
                 break
             # Only publish final model response, not reasoning.
             print(f"AI 返回空内容，重试 {attempt+1}/2：{market} {s.get('名称','')}", flush=True)
-        if not content:
+        if not content.strip():
             raise ValueError("AI 返回空内容")
         output.append((market,s,content[:1600],finance))
     if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
-    parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
-             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;white-space:pre-wrap;line-height:1.7}small{color:#666}</style>',
-             '<h1>AI 股票研究（实验版）</h1><p><a href="./">返回选股榜</a></p>',
-             '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
-             '<p>每天分析 A 股前5只、港股前5只，共10只；已尝试接入东方财富财务指标（第三方，按报告期展示）；未接入公告原文，所有财务数字仍需以正式披露核实。AI 可能出错，研究内容不构成投资建议。</p>']
-    for market,s,content,finance in output:
-        code = str(s.get("代码", ""))
-        # 可直接核对的交易所披露网站，不假定已取得公司财报。
-        if market == "A股":
-            source = "https://www.cninfo.com.cn/new/index"
-            source_name = "巨潮资讯：检索公司公告和财报"
-        else:
-            source = "https://www.hkexnews.hk/index_c.htm"
-            source_name = "港交所披露易：检索公司公告和财报"
-        parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
-        parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(code)+' 查询，核对报告期和披露日期）</p>')
-        parts.append(finance_html(finance))
-        parts.append('<p>'+esc(content)+'</p></article>')
-    parts.append('</html>')
-    (DOCS/"ai.html").write_text("\n".join(parts),encoding="utf-8")
+    (DOCS/"ai.html").write_text(render_report(data, output, updated), encoding="utf-8")
     print("AI 报告生成完成，股票数：",len(output))
 if __name__ == "__main__":
     main()

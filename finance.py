@@ -6,6 +6,9 @@ from decimal import Decimal, InvalidOperation
 import akshare as ak
 import pandas as pd
 
+from hk_original import fetch_hk_original
+from hk_products import SOURCE_URL
+
 
 # label, provider column, unit (money uses the validated reporting currency), basis
 A_FIELDS = (
@@ -71,11 +74,13 @@ def dated_rows(frame, symbol, as_of):
     if not {"SECUCODE", "REPORT_DATE"}.issubset(frame.columns):
         raise FinancialDataError("缺少证券标识或实际报告期")
     rows = frame.loc[frame["SECUCODE"] == symbol].copy()
-    rows["_period"] = pd.to_datetime(rows["REPORT_DATE"], errors="coerce").dt.normalize()
+    # Parse provider dates as dates. Pandas treats integer YYYYMMDD as nanoseconds.
+    rows["_period"] = pd.to_datetime(rows["REPORT_DATE"].astype("string"), format="mixed", errors="coerce").dt.normalize()
     rows = rows.loc[rows["_period"] <= as_of]
-    if "NOTICE_DATE" in rows:
-        notice = pd.to_datetime(rows["NOTICE_DATE"], errors="coerce")
-        rows = rows.loc[rows["NOTICE_DATE"].isna() | (notice.dt.normalize() <= as_of)]
+    for field in ("NOTICE_DATE", "UPDATE_DATE"):
+        if field in rows:
+            published = pd.to_datetime(rows[field].astype("string"), format="mixed", errors="coerce")
+            rows = rows.loc[rows[field].isna() | (published.dt.normalize() <= as_of)]
     if rows.empty:
         raise FinancialDataError("没有匹配证券且日期有效的记录")
     return rows
@@ -113,7 +118,7 @@ def cashflow(hk, code, symbol, row, as_of):
     return rows.iloc[0][field]
 
 
-def fetch_financial(market, code, name="", as_of=None):
+def fetch_financial(market, code, name="", as_of=None, *, directory=None):
     hk = market == "港股"
     width = 5 if hk else 6
     code = str(code).strip()
@@ -130,9 +135,11 @@ def fetch_financial(market, code, name="", as_of=None):
     if market not in ("A股", "港股") or not re.fullmatch(r"[0-9]{1,%d}" % width, code):
         return {"状态": "市场或证券代码无效"}
     code = code.zfill(width)
-    product = product_type(market, code, name)
+    listed = hk and directory is not None and code in directory
+    product = directory[code] if listed else product_type(market, code, name)
     if product:
-        return {"产品类型": product, "状态": "公司财务分析不适用"}
+        return {"产品类型": product, "分类来源": SOURCE_URL if listed else "行情名称或产品代码段",
+                "状态": "公司财务分析不适用"}
     result = {"来源": "东方财富（AKShare 主要指标、现金流量表，按报告期）"}
     as_of = pd.Timestamp(as_of or datetime.now(timezone(timedelta(hours=8))).date()).normalize()
     try:
@@ -161,8 +168,10 @@ def fetch_financial(market, code, name="", as_of=None):
         # when the provider's amounts differ from the original-currency filing.
         money_issue = "接口金额的折算币种未核实"
     result.update({"报告期": str(row["_period"].date()), "报告币种": currency if re.fullmatch("[A-Z]{3}", currency) else "未知"})
+    notice = pd.to_datetime(str(row.get("NOTICE_DATE", "")), errors="coerce")
+    result["披露日期"] = "接口未提供" if pd.isna(notice) else str(notice.date())
     if hk:
-        start = pd.to_datetime(row.get("START_DATE"), errors="coerce")
+        start = pd.to_datetime(str(row.get("START_DATE", "")), errors="coerce")
         if pd.isna(start) or start > row["_period"]:
             return {**result, "状态": "期间起点缺失或无效，未采用指标"}
         result["期间"] = f"{start.date()} 至 {row['_period'].date()}（按实际期间合计）"
@@ -190,6 +199,16 @@ def fetch_financial(market, code, name="", as_of=None):
                 metrics[label] = f"{value} {currency}（期间合计）"
     except Exception as exc:
         missing[label] = str(exc) if isinstance(exc, FinancialDataError) else f"现金流量表不可用（{type(exc).__name__}）"
+    if hk and currency != "CNY" and re.fullmatch("[A-Z]{3}", currency):
+        original, unavailable = fetch_hk_original(
+            code, str(start.date()), result["报告期"], str(row.get("DATE_TYPE_CODE", "")), currency
+        )
+        metrics.update(original)
+        for recovered in original:
+            missing.pop(recovered, None)
+        missing.update(unavailable)
+        if original:
+            result["原币金额来源"] = "东方财富原币财务报表（按科目匹配，以原币单位展示）"
     result["状态"] = ("部分可用" if missing else "可用") if metrics else "无可用指标"
     result["指标"] = metrics
     if missing:
