@@ -81,14 +81,40 @@ class DataQualityTests(unittest.TestCase):
         bad["流通市值"] = float("nan")
         self.assertEqual(len(picker.score_a(bad)), 0)
 
-    def test_fetch_market_skips_low_quality_fallback(self):
+    def test_fetch_market_skips_bad_direct_and_accepts_complete_source(self):
         good = quotes()
         bad = good.drop(columns=["流通市值"])
+        with patch.object(picker, "ak", object()), patch.object(
+            picker, "fetch_em_market", return_value=bad
+        ), patch.object(picker.time, "sleep", return_value=None):
+            result = picker.fetch_market("A股", [], "", "A", lambda: good, lambda: bad)
+            self.assertEqual(result.attrs["quality"]["行情来源"], "AKShare 东财")
+            self.assertEqual(len(result), 1200)
+
+    def test_bad_source_never_publishes_fake_scores(self):
+        bad = quotes().drop(columns=["流通市值"])
         with patch.object(picker, "ak", None), patch.object(
-            picker, "fetch_em_market", side_effect=RuntimeError("blocked")
+            picker, "fetch_em_market", return_value=bad
         ):
             with self.assertRaisesRegex(RuntimeError, "未找到字段完整"):
-                picker.fetch_market("A股", [], "", "A", lambda: good, lambda: bad)
+                picker.fetch_market("A股", [], "", "A", lambda: bad, lambda: bad)
+
+    def test_em_incomplete_pagination_does_not_succeed(self):
+        class FakeResponse:
+            def __init__(self, data):
+                self.data = data
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": self.data}
+
+        first = {"total": 300, "diff": [{"f12": "000001", "f2": 10}]}
+        rest = {"total": 300, "diff": []}
+        with patch.object(picker.requests, "get", side_effect=[
+            FakeResponse(first), FakeResponse(rest), FakeResponse(rest)
+        ]), patch.object(picker.time, "sleep", return_value=None):
+            with self.assertRaisesRegex(ValueError, "分页不完整"):
+                picker.fetch_em_clist("82", "", "A")
 
 
 if __name__ == "__main__":
