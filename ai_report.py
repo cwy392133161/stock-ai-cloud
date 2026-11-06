@@ -17,7 +17,10 @@ def main():
     data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
     stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
     if not stocks: raise ValueError("没有有效选股数据")
-    # Cost guard: 1-5 stocks per market, default 3 (6 API calls per run).\n    per_market = max(1, min(5, int(os.getenv("AI_TOP_PER_MARKET", "3"))))\n    stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:per_market]]\n    output = []
+    # Cost guard: 1-5 stocks per market, default 3 (6 API calls per run).
+    per_market = max(1, min(5, int(os.getenv("AI_TOP_PER_MARKET", "3"))))
+    stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:per_market]]
+    output = []
     for market, s in stocks:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
         prompt = ("仅根据以下快照数据撰写中文研究，不要声称已读取实时新闻、财报或公司公告。"
@@ -39,9 +42,7 @@ def main():
             content = msg.get("content") or ""
             if content.strip():
                 break
-            content = (msg.get("reasoning_content") or "").strip()
-            if content:
-                break
+            # Only publish final model response, not reasoning.
             print(f"AI 返回空内容，重试 {attempt+1}/2：{market} {s.get('名称','')}", flush=True)
         if not content:
             raise ValueError("AI 返回空内容")
