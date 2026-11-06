@@ -25,6 +25,12 @@ MIN_COVERAGE = {
     "市盈率-动态": 0.30,
     "市净率": 0.45,
 }
+# HK full-market snapshots include many counters with no/zero daily turnover.
+# Keep the original HK trade-value eligibility filter in picker.py untouched.
+# 80% live coverage (2026-11-06) passed every other quality check but the
+# former blanket 85% turnover threshold incorrectly rejected the source.
+# Use a conservative HK-only floor; A-share coverage remains unchanged.
+MIN_COVERAGE_OVERRIDES = {"港股": {"成交额": 0.75}}
 MIN_UNIVERSE = {"A股": 3000, "港股": 1200}
 
 
@@ -63,7 +69,8 @@ def validate_market_data(frame, market, source):
         )
     coverage = {}
     failed = []
-    for field, floor in MIN_COVERAGE.items():
+    for field, default_floor in MIN_COVERAGE.items():
+        floor = MIN_COVERAGE_OVERRIDES.get(market, {}).get(field, default_floor)
         values = _numeric(valid, field)
         if field in ("成交额", "流通市值", "量比"):
             present = values > 0
