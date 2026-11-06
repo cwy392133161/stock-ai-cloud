@@ -58,6 +58,29 @@ class DataQualityTests(unittest.TestCase):
         with self.assertRaises(MarketDataQualityError):
             validate_market_data(bad, "A股", "infinite")
 
+    def test_hk_rmb_and_hkd_counters_keep_distinct_codes(self):
+        self.assertEqual(picker._norm_hk_code("09988"), "09988")
+        self.assertEqual(picker._norm_hk_code("89988"), "89988")
+        self.assertEqual(picker._norm_hk_code("9988"), "09988")
+        self.assertNotEqual(picker._norm_hk_code("09988"), picker._norm_hk_code("89988"))
+        for invalid in ("", "89988.HK", "899880", "-"):
+            with self.assertRaises(ValueError):
+                picker._norm_hk_code(invalid)
+
+    def test_em_hk_raw_feed_does_not_collapse_dual_counters(self):
+        class Response:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"total": 2, "diff": [
+                    {"f12": "09988", "f14": "阿里巴巴-W", "f2": 120, "f3": 1},
+                    {"f12": "89988", "f14": "阿里巴巴-R", "f2": 110, "f3": 1},
+                ]}}
+        with patch.object(picker.requests, "get", return_value=Response()):
+            frame = picker.fetch_em_clist("72", "", "HK")
+        self.assertEqual(list(frame["代码"]), ["09988", "89988"])
+        self.assertFalse(frame["代码"].duplicated().any())
+
     def test_hk_market(self):
         self.assertEqual(validate_market_data(quotes(1500), "港股", "fixture")["有效股票数"], 1500)
 
