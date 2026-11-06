@@ -161,8 +161,7 @@ def fetch_em_market(label, hosts, fs, market):
 
 
 def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
-    """按顺序尝试：东财直连（轮换服务器）→ AKShare 东财源 → AKShare 新浪源。
-    每路失败后按退避等待再试下一路；全部失败则抛错。"""
+    """逐源尝试完整行情；字段质量不达标则继续备用源，全部失败保留旧榜单。"""
     waits = _retry_waits() or [0]
     attempts = [("东财直连", lambda: fetch_em_market(label, hosts, fs, market))]
     if ak is not None:
@@ -236,7 +235,7 @@ def score_a(df):
     d["成交额"] = _col(d, "成交额")
     d["振幅"] = _col(d, "振幅")
 
-    # 过滤：ST / 退市、停牌（无价）、市值与成交额过小（字段缺失时跳过该项过滤）
+    # 过滤：ST / 退市、停牌（无价）、市值与成交额过小；缺失数据不得跳过门槛
     if "名称" in d.columns:
         d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
@@ -423,8 +422,15 @@ def main():
     df_hk = fetch_market("港股", EM_HOSTS_HK, EM_FS_HK, "HK",
                          ak.stock_hk_spot_em, ak.stock_hk_spot)
 
-    top_a = pick_rows(score_a(df_a), "A", TOP_N)
-    top_hk = pick_rows(score_hk(df_hk), "HK", TOP_N)
+    ranked_a = score_a(df_a)
+    ranked_hk = score_hk(df_hk)
+    for market_name, ranked in (("A股", ranked_a), ("港股", ranked_hk)):
+        if len(ranked) >= TOP_N and ranked.head(TOP_N)["评分"].nunique() <= 1:
+            raise MarketDataQualityError(
+                f"{market_name} 前{TOP_N}名评分全部相同，疑似多因子评分退化；拒绝覆盖旧榜单"
+            )
+    top_a = pick_rows(ranked_a, "A", TOP_N)
+    top_hk = pick_rows(ranked_hk, "HK", TOP_N)
     print(f"A 股候选 {len(df_a)} 只，入选 {len(top_a)} 只；港股候选 {len(df_hk)} 只，入选 {len(top_hk)} 只", flush=True)
     if len(top_a) != TOP_N or len(top_hk) != TOP_N:
         raise MarketDataQualityError("通过有效市值、成交额门槛的股票不足 Top 20，保留已有榜单")
