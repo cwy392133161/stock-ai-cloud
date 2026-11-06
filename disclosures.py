@@ -1,4 +1,6 @@
 """Recent official filing titles and document links, anchored to the snapshot date."""
+from filing_text import IMPORTANT
+
 import html
 import json
 import re
@@ -84,7 +86,7 @@ def fetch_disclosures(market, code, as_of):
                 skipped = True
                 continue
             notices[url] = {"日期": day.isoformat(), "标题": title, "链接": url}
-        result["公告"] = sorted(notices.values(), key=lambda item: item["日期"], reverse=True)[:3]
+        result["公告"] = sorted(notices.values(), key=lambda item: (bool(IMPORTANT.search(item["标题"])), item["日期"]), reverse=True)[:3]
         result["状态"] = "已取得公告索引" if notices else ("索引条目未核实" if skipped else "查询期内未检索到匹配公告")
     except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
         result["状态"] = f"公告查询未核实（{type(exc).__name__}）"

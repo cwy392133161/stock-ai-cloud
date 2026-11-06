@@ -40,6 +40,8 @@ class ReportTests(unittest.TestCase):
                "AI_BASE_URL": "https://example.invalid"}
         with tempfile.TemporaryDirectory() as tmp, patch.object(ai_report, "DOCS", Path(tmp)), \
                 patch.dict(os.environ, env), patch.object(ai_report, "stock_directory", return_value={}), \
+                patch.object(ai_report, "fetch_disclosures", return_value={
+                    "来源": "样例", "状态": "未检索到", "查询期间": "测试", "公告": []}), \
                 patch.object(ai_report, "fetch_financial", side_effect=reports), \
                 patch.object(ai_report.requests, "post") as post, redirect_stdout(io.StringIO()) as log:
             Path(tmp, "data.json").write_text(json.dumps(data), encoding="utf-8")

@@ -35,6 +35,11 @@ jobs:
       - name: 运行选股
         run: python picker.py
 
+      - name: 安装公告 PDF 文本读取工具
+        continue-on-error: true
+        if: ${{ vars.AI_ENABLED == 'true' }}
+        run: command -v pdftotext || (sudo apt-get update -qq && sudo apt-get install -y poppler-utils)
+
       - name: 生成可选 AI 深度分析
         if: ${{ vars.AI_ENABLED == 'true' }}
         continue-on-error: true
