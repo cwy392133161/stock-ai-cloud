@@ -1,57 +1,24 @@
 # Optional LLM research layer. Uses only the existing ranked data; no news or filings are fetched.
-import os, json, html, pathlib, requests, re
+import os, json, html, pathlib, requests
 from datetime import datetime, timezone, timedelta
+
+from finance import fetch_financial
 
 ROOT = pathlib.Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
 def esc(v): return html.escape(str(v), quote=True)
 
-def fetch_financial(market, code):
-    """Best-effort AKShare finance indicators; never infer missing figures."""
-    try:
-        import akshare as ak
-        if market == "A股":
-            prefix = "SH" if str(code).startswith(("6","9")) else "BJ" if str(code).startswith(("4","8")) else "SZ"
-            df = ak.stock_financial_analysis_indicator_em(symbol=prefix+str(code).zfill(6), indicator="按报告期")
+def finance_html(finance):
+    lines = []
+    for key, value in finance.items():
+        if isinstance(value, dict):
+            for label, detail in value.items():
+                prefix = "缺失 · " if key == "缺失" else ""
+                lines.append(esc(prefix + label) + "：" + esc(detail))
         else:
-            df = ak.stock_financial_hk_analysis_indicator_em(symbol=str(code).zfill(5), indicator="报告期")
-        if df is None or df.empty:
-            return {"状态":"未获取到财务数据"}
-        date_cols = [c for c in df.columns if any(t in str(c).upper() for t in ("REPORT_DATE","REPORTDATE","日期","周期","报告期"))]
-        if not date_cols:
-            return {"状态":"未识别报告期，财务数据不采用"}
-        date_col = date_cols[0]
-        import pandas as pd
-        dates = pd.to_datetime(df[date_col], errors="coerce")
-        valid = df.loc[dates.notna()].copy()
-        if valid.empty:
-            return {"状态":"无有效报告期"}
-        valid["_period"] = dates.loc[valid.index]
-        valid = valid.sort_values("_period", ascending=False)
-        row = valid.iloc[0]
-        if row["_period"].date() > datetime.now(timezone(timedelta(hours=8))).date():
-            return {"状态":"报告期晚于当前日期，拒绝使用"}
-        result = {"来源":"东方财富（经 AKShare 获取，非交易所原始披露）","报告期":str(row["_period"].date()),"说明":"指标可能为累计值、单季值或特定币种，未核实口径时不得跨期比较"}
-        aliases = {
-            "营业收入同比增长率(%)":["TOTALOPERATEREVETZ","营业收入同比增长率","营业总收入同比增长率"],
-            "归母净利润同比增长率(%)":["PARENTNETPROFITTZ","归母净利润同比增长率","归属母公司净利润同比增长率"],
-            "净资产收益率(%)":["ROEJQ","净资产收益率(%)","加权净资产收益率(%)"],
-            "资产负债率(%)":["ZCFZL","资产负债率(%)"],
-            "每股收益":["基本每股收益(元)","基本每股收益","EPSJB"]
-        }
-        for label, names in aliases.items():
-            for name in names:
-                if name in row.index:
-                    value = row[name]
-                    if pd.notna(value) and str(value).strip() not in ("","--","-","nan"):
-                        result[label] = str(value)[:40]
-                    break
-        if len(result) == 4:
-            result["状态"] = "未识别可用财务指标"
-        return result
-    except Exception as exc:
-        print(f"财务数据不可用 {market} {code}: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
-        return {"状态":"财务接口暂不可用，未使用未经核实的数字"}
+            lines.append(esc(key) + "：" + esc(value))
+    return '<small>财务数据<br>' + '<br>'.join(lines) + '</small>'
+
 
 def main():
     key = os.getenv("AI_API_KEY", "").strip()
@@ -69,8 +36,9 @@ def main():
     # 仅展示可核对的官方财务信息入口，不把未经验证的接口数据当作事实。
     for market, s in stocks:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
-        finance = fetch_financial(market, s.get("代码", ""))
+        finance = fetch_financial(market, s.get("代码", ""), s.get("名称", ""), data["updated"][:10])
         prompt = ("你只能使用下列快照数据，不得补充未提供的财务数字、行业事实、新闻、公告、财报或市盈率。提供的财务指标仅来自第三方数据接口，必须标明报告期，不能当作最新实时数据；缺失则明确未知。"
+                  "标明公司财务不适用的产品只分析产品行情，勿讨论公司财务。只采用标为可用的指标并保留币种和期间，勿解读异常 ROE 为经营改善。"
                   "请用120字以内，分为优势、风险、待核实事项三个部分。"
                   "必须明确：评分是程序的相对排名分数，不代表收益概率或预测。禁止将估值分当成市盈率。"
                   "明确不预测确定涨跌、不给出买卖指令。数据缺失时说未知。"
@@ -111,10 +79,10 @@ def main():
         else:
             source = "https://www.hkexnews.hk/index_c.htm"
             source_name = "港交所披露易：检索公司公告和财报"
+        parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
         parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(code)+' 查询，核对报告期和披露日期）</p>')
-        finance_info = "；".join(esc(k)+": "+esc(v) for k,v in finance.items())
-        parts.append('<small>财务数据：'+finance_info+'</small>')
-        parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(s.get("代码",""))+')</b><p>'+esc(content)+'</p></article>')
+        parts.append(finance_html(finance))
+        parts.append('<p>'+esc(content)+'</p></article>')
     parts.append('</html>')
     (DOCS/"ai.html").write_text("\n".join(parts),encoding="utf-8")
     print("AI 报告生成完成，股票数：",len(output))
