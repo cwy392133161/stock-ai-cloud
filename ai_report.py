@@ -16,13 +16,13 @@ def main():
         raise ValueError("AI_BASE_URL 必须是可信的 HTTPS API 地址")
     data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
     stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
-    if not stocks: raise ValueError("没有有效选股数据")
+    if len(stocks) != 10: raise ValueError(f"预期 A 股和港股各5只，共10只；实际只有 {len(stocks)} 只，拒绝发布不完整报告")
     output = []
     for market, s in stocks:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
-        prompt = ("仅根据以下快照数据撰写中文研究，不要声称已读取实时新闻、财报或公司公告。"
+        prompt = ("你只能使用下列快照数据，不得补充未提供的财务数字、行业事实、新闻、公告、财报或市盈率。"
                   "请用120字以内，分为优势、风险、待核实事项三个部分。"
-                  "明确不预测确定涨跌、不给出买卖指令。数据缺失时说未知。"
+                  "必须明确：评分是程序的相对排名分数，不代表收益概率或预测。禁止将估值分当成市盈率。"\n                  "明确不预测确定涨跌、不给出买卖指令。数据缺失时说未知。"
                   "股票数据：" + json.dumps({"市场":market,**payload},ensure_ascii=False))
         # deepseek-flash 默认开思考模式：先写推理再给正文。max_tokens 太小会被推理
         # 占满（实测 350 个 token 里推理占了 290 个），正文被截断甚至为空而报错。
@@ -44,7 +44,7 @@ def main():
         if not content:
             raise ValueError("AI 返回空内容")
         output.append((market,s,content[:1600]))
-    updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+    if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")\n    updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
              '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;white-space:pre-wrap;line-height:1.7}small{color:#666}</style>',
              '<h1>AI 股票研究（实验版）</h1><p><a href="./">返回选股榜</a></p>',
