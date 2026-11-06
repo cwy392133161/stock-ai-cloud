@@ -25,7 +25,7 @@ MIN_COVERAGE = {
     "市盈率-动态": 0.30,
     "市净率": 0.45,
 }
-MIN_UNIVERSE = {"A股": 800, "港股": 200}
+MIN_UNIVERSE = {"A股": 3000, "港股": 1200}
 
 
 def _numeric(frame, column):
