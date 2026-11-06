@@ -1,5 +1,5 @@
 # Optional LLM research layer. Uses only the existing ranked data; no news or filings are fetched.
-import os, json, html, pathlib, requests
+import os, json, html, pathlib, requests, re
 from datetime import datetime, timezone, timedelta
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ def main():
     stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
     if len(stocks) != 10: raise ValueError(f"预期 A 股和港股各5只，共10只；实际只有 {len(stocks)} 只，拒绝发布不完整报告")
     output = []
+    # 仅展示可核对的官方财务信息入口，不把未经验证的接口数据当作事实。
     for market, s in stocks:
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
         prompt = ("你只能使用下列快照数据，不得补充未提供的财务数字、行业事实、新闻、公告、财报或市盈率。"
@@ -45,13 +46,23 @@ def main():
         if not content:
             raise ValueError("AI 返回空内容")
         output.append((market,s,content[:1600]))
-    if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")\n    updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+    if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
+    updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
              '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;white-space:pre-wrap;line-height:1.7}small{color:#666}</style>',
              '<h1>AI 股票研究（实验版）</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
              '<p>每天分析 A 股前5只、港股前5只，共10只；未接入新闻、财报和公告，财务经营事实需另行核实。AI 可能出错，研究内容不构成投资建议。</p>']
     for market,s,content in output:
+        code = str(s.get("代码", ""))
+        # 可直接核对的交易所披露网站，不假定已取得公司财报。
+        if market == "A股":
+            source = "https://www.cninfo.com.cn/new/index"
+            source_name = "巨潮资讯：检索公司公告和财报"
+        else:
+            source = "https://www.hkexnews.hk/index_c.htm"
+            source_name = "港交所披露易：检索公司公告和财报"
+        parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(code)+' 查询，核对报告期和披露日期）</p>')
         parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(s.get("代码",""))+')</b><p>'+esc(content)+'</p></article>')
     parts.append('</html>')
     (DOCS/"ai.html").write_text("\n".join(parts),encoding="utf-8")
