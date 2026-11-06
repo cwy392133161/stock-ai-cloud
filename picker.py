@@ -44,8 +44,8 @@ PAGE_DELAY = 1.5           # 东财分页请求间隔（秒），可用环境变
 PAGE_SIZE = 100            # 东财接口每页最多 100 行
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
 
-# 东财行情接口字段映射（实测验证）：f12 为代码（港股带一位 "8" 前缀，
-# 如 89988，显示时去掉前缀并补零为 09988）；f5 成交量单位为手。
+# 东财行情接口字段映射：f12 为代码，港股 8xxxx 是真实的人民币交易柜台代码，
+# 例如 89988 与港币柜台 09988 均有效，必须保留为两个不同代码；f5 成交量单位为手。
 EM_COLS = {
     "f2": "最新价", "f3": "涨跌幅", "f4": "涨跌额", "f5": "成交量",
     "f6": "成交额", "f7": "振幅", "f8": "换手率", "f9": "市盈率-动态",
@@ -96,11 +96,16 @@ def _page_delay():
 
 
 def _norm_hk_code(code):
-    """东财港股代码带一位 '8' 前缀（如 89988），去掉前缀并补零为 09988。"""
-    s = str(code)
-    if len(s) == 5 and s.startswith("8"):
-        return s[1:].zfill(5)
-    return s
+    """Preserve actual HKEX counter codes, including 8xxxx RMB dual counters.
+
+    09988 (HKD) and 89988 (RMB) are distinct listings/trading counters.
+    Never strip the leading 8: it merges two different counter codes and
+    makes a complete Eastmoney response fail duplicate-code validation.
+    """
+    s = str(code).strip()
+    if not s.isascii() or not s.isdigit() or len(s) > 5:
+        raise ValueError(f"无效港股交易柜台代码：{s!r}")
+    return s.zfill(5)
 
 
 def fetch_em_clist(host, fs, market):
