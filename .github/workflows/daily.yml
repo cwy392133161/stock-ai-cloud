@@ -29,6 +29,9 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 验证行情质量与评分逻辑（离线测试）
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
       - name: 运行选股
         run: python picker.py
 
