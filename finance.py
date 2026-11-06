@@ -117,6 +117,16 @@ def fetch_financial(market, code, name="", as_of=None):
     hk = market == "港股"
     width = 5 if hk else 6
     code = str(code).strip()
+    if market == "A股":
+        tagged = re.fullmatch(r"(sh|sz|bj)([0-9]{6})", code, flags=re.IGNORECASE)
+        if tagged:
+            exchange, code = tagged.groups()
+            try:
+                expected = a_exchange(code)
+            except FinancialDataError:
+                return {"状态": "无法识别 A 股交易所"}
+            if exchange.upper() != expected:
+                return {"状态": "行情代码的交易所与编号不匹配"}
     if market not in ("A股", "港股") or not re.fullmatch(r"[0-9]{1,%d}" % width, code):
         return {"状态": "市场或证券代码无效"}
     code = code.zfill(width)

@@ -17,6 +17,16 @@ class FinancialTests(unittest.TestCase):
                 api.assert_not_called()
         self.assertEqual(product_type("港股", "01234", "示例 ETN"), "ETN")
 
+    def test_sina_prefixed_symbols(self):
+        for raw, expected in (("bj920175", "920175.BJ"), ("sz301697", "301697.SZ"),
+                              ("SH601939", "601939.SH")):
+            with patch("finance.ak.stock_financial_analysis_indicator_em", return_value=pd.DataFrame()) as api:
+                fetch_financial("A股", raw)
+                api.assert_called_once_with(symbol=expected, indicator="按报告期")
+        with patch("finance.ak.stock_financial_analysis_indicator_em") as api:
+            self.assertIn("不匹配", fetch_financial("A股", "sz920175")["状态"])
+            api.assert_not_called()
+
     def test_period_identity_and_disclosure(self):
         df = pd.DataFrame([
             ("A", "2026-06-30", "2026-08-01"), ("B", "2026-09-30", None),
