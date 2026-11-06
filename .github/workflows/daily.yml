@@ -5,7 +5,12 @@ name: Daily stock screening and Pages
 on:
   schedule:
     - cron: "10 9 * * 1-5"
-  workflow_dispatch:  # 允许在 Actions 页面点 Run workflow 手动跑一次
+  workflow_dispatch:
+    inputs:
+      report_only:
+        description: "仅生成 AI 报告（使用已发布的行情快照，跳过实时选股）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -32,7 +37,27 @@ jobs:
       - name: 验证行情质量与评分逻辑（离线测试）
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: 检查手动报告所用快照
+        if: ${{ inputs.report_only }}
+        env:
+          AI_ENABLED: ${{ vars.AI_ENABLED }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          snapshot = json.loads(Path("docs/data.json").read_text())
+          if os.getenv("AI_ENABLED") != "true":
+              raise SystemExit("请启用 AI_ENABLED 后生成报告")
+          for field in ("a_shares", "hk_shares"):
+              rows = snapshot[field]
+              if len(rows) != 20 or len({row["代码"] for row in rows}) != 20:
+                  raise SystemExit(f"快照榜单不完整: {field}")
+          print("本次报告使用已发布行情快照:", snapshot["updated"])
+          PY
+
       - name: 运行选股
+        if: ${{ !inputs.report_only }}
         run: python picker.py
 
       - name: 安装公告 PDF 文本读取工具
@@ -42,13 +67,17 @@ jobs:
 
       - name: 生成可选 AI 深度分析
         if: ${{ vars.AI_ENABLED == 'true' }}
-        continue-on-error: true
+        continue-on-error: ${{ !inputs.report_only }}
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_BASE_URL: ${{ vars.AI_BASE_URL }}
           AI_MODEL: ${{ vars.AI_MODEL }}
-        run: python ai_report.py
+        run: |
+          if [ "${{ inputs.report_only }}" = "true" ]; then
+            test -n "$AI_API_KEY" && test -n "$AI_MODEL" && test -n "$AI_BASE_URL" || { echo "AI 配置不完整"; exit 1; }
+          fi
+          python ai_report.py
 
       - name: 提交结果（仅当页面有变化）
         run: |
