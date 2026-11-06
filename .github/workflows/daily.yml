@@ -32,10 +32,21 @@ jobs:
       - name: 运行选股
         run: python picker.py
 
+      - name: 生成可选 AI 深度分析
+        if: ${{ vars.AI_ENABLED == 'true' }}
+        continue-on-error: true
+        env:
+          AI_ENABLED: ${{ vars.AI_ENABLED }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+        run: python ai_report.py
+
       - name: 提交结果（仅当页面有变化）
         run: |
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
           git add docs/index.html docs/data.json
+          if [ -f docs/ai.html ]; then git add docs/ai.html; fi
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
