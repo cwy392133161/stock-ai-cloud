@@ -48,7 +48,11 @@ def validate_market_data(frame, market, source):
         raise MarketDataQualityError(f"{market}/{source} 没有有效股票列表")
     code = frame["代码"].astype(str).str.strip()
     if code.eq("").any() or code.duplicated().any():
-        raise MarketDataQualityError(f"{market}/{source} 证券代码缺失或重复")
+        collisions = code.loc[code.duplicated(keep=False)]
+        sample = ",".join(collisions.drop_duplicates().head(6).tolist())
+        raise MarketDataQualityError(
+            f"{market}/{source} 证券代码缺失或重复；重复行 {len(collisions)}，样例：{sample}"
+        )
     price = _numeric(frame, "最新价")
     change = _numeric(frame, "涨跌幅")
     tradable = (price > 0) & change.notna()
