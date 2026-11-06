@@ -8,7 +8,8 @@ A 股 + 港股多因子选股（免费云端版）
 3. 生成中文网页 docs/index.html（供 GitHub Pages 发布）
 
 注意：这是规则化评分，不是大语言模型分析；结果仅供学习参考，不构成投资建议。
-东方财富接口会对云端共享 IP 限流，拉取失败时按退避间隔重试，仍失败则
+东方财富接口会对云端共享 IP 限流，本脚本直调其行情接口：慢速分页、
+轮换多台行情服务器，失败再依次试 AKShare 东财源、新浪源；仍失败则
 本次不覆盖旧页面（保留上一次结果和更新时间），并在日志中写明原因。
 """
 
@@ -19,6 +20,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
+import requests
 
 try:
     import akshare as ak
@@ -34,7 +36,29 @@ MIN_FLOAT_CAP_A = 20e8     # A 股：流通市值不低于 20 亿人民币
 MIN_AMOUNT_A = 5e7          # A 股：当日成交额不低于 5000 万人民币
 MIN_FLOAT_CAP_HK = 20e8    # 港股：流通市值不低于 20 亿港币
 MIN_AMOUNT_HK = 1e7         # 港股：当日成交额不低于 1000 万港币
-RETRY_WAITS = [120, 300]   # 东方财富限流后的重试等待（秒），可用环境变量覆盖
+RETRY_WAITS = [120, 300]   # 换数据源前的退避等待（秒），可用环境变量覆盖
+PAGE_DELAY = 1.5           # 东财分页请求间隔（秒），可用环境变量覆盖
+PAGE_SIZE = 100            # 东财接口每页最多 100 行
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+
+# 东财行情接口字段映射（实测验证）：f12 为代码（港股带一位 "8" 前缀，
+# 如 89988，显示时去掉前缀并补零为 09988）；f5 成交量单位为手。
+EM_COLS = {
+    "f2": "最新价", "f3": "涨跌幅", "f4": "涨跌额", "f5": "成交量",
+    "f6": "成交额", "f7": "振幅", "f8": "换手率", "f9": "市盈率-动态",
+    "f10": "量比", "f11": "5分钟涨跌", "f12": "代码", "f14": "名称",
+    "f15": "最高", "f16": "最低", "f17": "今开", "f18": "昨收",
+    "f20": "总市值", "f21": "流通市值", "f22": "涨速", "f23": "市净率",
+    "f24": "60日涨跌幅", "f25": "年初至今涨跌幅",
+}
+EM_FIELDS = ",".join(["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
+                      "f10", "f12", "f13", "f14", "f15", "f16", "f17", "f18",
+                      "f20", "f21", "f23", "f24", "f25", "f22", "f11", "f62",
+                      "f128", "f136", "f115", "f152"])
+EM_FS_A = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"   # 沪深京 A 股
+EM_FS_HK = "m:128 t:3,m:128 t:4,m:128 t:1,m:128 t:2"           # 港股
+EM_HOSTS_A = ["82", "7", "28", ""]    # 空字符串 = 不带数字的 push2.eastmoney.com
+EM_HOSTS_HK = ["72", "81", "7", ""]
 
 
 def _retry_waits():
@@ -61,34 +85,115 @@ def _col(d, name):
     return pd.Series(float("nan"), index=d.index)
 
 
-def fetch_with_retry(label, primary, fallback):
-    """先跑主接口，失败按退避重试；仍失败再试备用接口；都失败则抛错。"""
+def _page_delay():
+    try:
+        return float(os.environ.get("PAGE_DELAY", PAGE_DELAY))
+    except ValueError:
+        return PAGE_DELAY
+
+
+def _norm_hk_code(code):
+    """东财港股代码带一位 '8' 前缀（如 89988），去掉前缀并补零为 09988。"""
+    s = str(code)
+    if len(s) == 5 and s.startswith("8"):
+        return s[1:].zfill(5)
+    return s
+
+
+def fetch_em_clist(host, fs, market):
+    """直调东财行情接口，慢速分页拉全量。host 如 '82'，空串表示不带数字的 push2。"""
+    base = f"https://{host + '.' if host else ''}push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1", "pz": str(PAGE_SIZE), "po": "1", "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281", "fltt": "2", "invt": "2",
+        "fid": "f12", "fs": fs, "fields": EM_FIELDS, "_": "1700000000000",
+    }
+    r = requests.get(base, params=params, headers=UA, timeout=20)
+    r.raise_for_status()
+    data = r.json().get("data") or {}
+    total = int(data.get("total") or 0)
+    if total <= 0 or not data.get("diff"):
+        raise ValueError("东财接口返回空数据")
+    rows = list(data["diff"])
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    for page in range(2, pages + 1):
+        time.sleep(_page_delay())
+        params["pn"] = str(page)
+        r = requests.get(base, params=params, headers=UA, timeout=20)
+        r.raise_for_status()
+        diff = (r.json().get("data") or {}).get("diff") or []
+        rows.extend(diff)
+    df = pd.DataFrame(rows)
+    keep = [c for c in EM_COLS if c in df.columns]
+    df = df[keep].rename(columns=EM_COLS)
+    df["代码"] = df["代码"].astype(str)
+    if market == "HK":
+        df["代码"] = df["代码"].map(_norm_hk_code)
+    for col in ("最新价", "涨跌幅", "涨跌额", "成交量", "成交额", "振幅", "换手率",
+                "市盈率-动态", "量比", "5分钟涨跌", "最高", "最低", "今开", "昨收",
+                "总市值", "流通市值", "涨速", "市净率", "60日涨跌幅", "年初至今涨跌幅"):
+        if col in df.columns:
+            df[col] = _num(df[col])
+    print(f"  东财直连（{host or 'push2'}）：{len(df)} 行", flush=True)
+    return df
+
+
+def fetch_em_market(label, hosts, fs, market):
+    """轮换多台东财行情服务器拉取，全部失败才抛错。"""
     last_err = None
-    for attempt, wait in enumerate([0] + _retry_waits()):
-        if wait:
-            print(f"[{label}] 第 {attempt} 次重试前等待 {wait} 秒（接口限流退避）...", flush=True)
+    for j, host in enumerate(hosts):
+        if j > 0:
+            time.sleep(10)
+        try:
+            return fetch_em_clist(host, fs, market)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(f"[{label}] 服务器 {host or 'push2'} 失败：{str(e)[:150]}", flush=True)
+    raise RuntimeError(f"东财直连全部服务器失败：{last_err}")
+
+
+def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
+    """按顺序尝试：东财直连（轮换服务器）→ AKShare 东财源 → AKShare 新浪源。
+    每路失败后按退避等待再试下一路；全部失败则抛错。"""
+    waits = _retry_waits()
+    attempts = [("东财直连", lambda: fetch_em_market(label, hosts, fs, market))]
+    if ak is not None:
+        attempts.append(("AKShare 东财", ak_primary))
+        if ak_fallback is not None:
+            attempts.append(("AKShare 新浪", ak_fallback))
+    last_err = None
+    for i, (name, fn) in enumerate(attempts):
+        if i > 0:
+            wait = waits[min(i - 1, len(waits) - 1)]
+            print(f"[{label}] 改试{name}前等待 {wait} 秒（接口限流退避）...", flush=True)
             time.sleep(wait)
         try:
-            df = primary()
+            df = fn()
             if df is None or len(df) == 0:
                 raise ValueError("接口返回空数据")
-            print(f"[{label}] 成功：{len(df)} 行", flush=True)
+            df = _standardize(df)
+            print(f"[{label}] {name}成功：{len(df)} 行", flush=True)
             return df
         except Exception as e:  # noqa: BLE001 - 任何接口异常都按限流/故障处理
             last_err = e
-            print(f"[{label}] 第 {attempt + 1} 次失败：{str(e)[:200]}", flush=True)
-    if fallback is not None:
-        print(f"[{label}] 改试备用接口...", flush=True)
-        try:
-            df = fallback()
-            if df is None or len(df) == 0:
-                raise ValueError("备用接口返回空数据")
-            print(f"[{label}] 备用接口成功：{len(df)} 行", flush=True)
-            return df
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-            print(f"[{label}] 备用接口失败：{str(e)[:200]}", flush=True)
+            print(f"[{label}] {name}失败：{str(e)[:200]}", flush=True)
     raise RuntimeError(f"{label} 数据拉取失败：{last_err}")
+
+
+def _standardize(df):
+    """统一不同数据源的列名：新浪港股用 '中文名称'，没有名称时用代码代替。
+    保证下游打分和榜单总能读到 代码 / 名称 两列。"""
+    d = df.copy()
+    if "名称" not in d.columns and "中文名称" in d.columns:
+        d = d.rename(columns={"中文名称": "名称"})
+    if "名称" not in d.columns and "代码" in d.columns:
+        d["名称"] = d["代码"].astype(str)
+    if "代码" not in d.columns:
+        d["代码"] = ""
+    d["代码"] = d["代码"].astype(str)
+    if "名称" in d.columns:
+        d["名称"] = d["名称"].astype(str)
+    return d
 
 
 def _rank_pct(s):
@@ -137,13 +242,16 @@ def score_a(df):
 
 def score_hk(df):
     """港股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。
-    港股实时接口没有 60 日涨跌幅，趋势分用当日涨跌幅。"""
+    直连接口的港股数据包含 60 日涨跌幅、换手率、市盈率等全字段，与 A 股用
+    同一套打分；只有走 AKShare 港股源兜底时这些字段缺失，缺失项按中性处理。"""
     d = df.copy()
     d["最新价"] = _col(d, "最新价")
     d["涨跌幅"] = _col(d, "涨跌幅")
+    d["60日涨跌幅"] = _col(d, "60日涨跌幅")
+    d["年初至今涨跌幅"] = _col(d, "年初至今涨跌幅")
     d["换手率"] = _col(d, "换手率")
     d["量比"] = _col(d, "量比")
-    d["市盈率"] = _col(d, "市盈率")
+    d["市盈率-动态"] = _col(d, "市盈率-动态")
     d["市净率"] = _col(d, "市净率")
     d["流通市值"] = _col(d, "流通市值")
     d["成交额"] = _col(d, "成交额")
@@ -158,9 +266,12 @@ def score_hk(df):
         d = d[d["成交额"] >= MIN_AMOUNT_HK]
     d = d.dropna(subset=["涨跌幅"])
 
-    trend = _rank_pct(d["涨跌幅"])
+    if d["60日涨跌幅"].notna().any():
+        trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
+    else:
+        trend = _rank_pct(d["涨跌幅"])
     active = 0.5 * _rank_pct(d["换手率"]) + 0.5 * _rank_pct(d["量比"])
-    pe = d["市盈率"].where((d["市盈率"] > 0) & (d["市盈率"] < 100))
+    pe = d["市盈率-动态"].where((d["市盈率-动态"] > 0) & (d["市盈率-动态"] < 100))
     pb = d["市净率"].where((d["市净率"] > 0) & (d["市净率"] < 10))
     value = 0.6 * (100 - _rank_pct(pe)) + 0.4 * (100 - _rank_pct(pb))
     size = _rank_pct(d["流通市值"])
@@ -182,15 +293,14 @@ def fmt_money(v, unit):
 def reasons(row, market):
     """按得分贡献生成中文入选原因。"""
     rs = []
-    if market == "A":
-        if pd.notna(row.get("60日涨跌幅")):
-            rs.append(f"60日涨 {row['60日涨跌幅']:+.1f}%")
-        if pd.notna(row.get("年初至今涨跌幅")):
-            rs.append(f"今年以来 {row['年初至今涨跌幅']:+.1f}%")
+    if pd.notna(row.get("60日涨跌幅")):
+        rs.append(f"60日涨 {row['60日涨跌幅']:+.1f}%")
+    if pd.notna(row.get("年初至今涨跌幅")):
+        rs.append(f"今年以来 {row['年初至今涨跌幅']:+.1f}%")
     rs.append(f"今日 {row['涨跌幅']:+.1f}%")
     if pd.notna(row.get("换手率")):
         rs.append(f"换手率 {row['换手率']:.1f}%")
-    pe_col = "市盈率-动态" if market == "A" else "市盈率"
+    pe_col = "市盈率-动态" if pd.notna(row.get("市盈率-动态")) else "市盈率"
     if pd.notna(row.get(pe_col)) and 0 < row[pe_col] < 100:
         rs.append(f"市盈率 {row[pe_col]:.0f} 倍")
     return "，".join(rs)
@@ -217,8 +327,8 @@ def pick_rows(d, market, n):
     rows = []
     for _, r in d.head(n).iterrows():
         rows.append({
-            "代码": str(r["代码"]),
-            "名称": str(r["名称"]),
+            "代码": str(r.get("代码", "")),
+            "名称": str(r.get("名称", r.get("代码", ""))),
             "最新价": float(r["最新价"]),
             "涨跌幅": float(r["涨跌幅"]),
             "评分": float(r["评分"]),
@@ -263,7 +373,7 @@ th{background:#fafafa;font-size:13px;color:#555}
 
 HTML_FOOT = """
 <p class="note">⚠️ 本页面由程序按公开行情数据自动生成，仅供学习参考，不构成任何投资建议。股市有风险，入市需谨慎。<br>
-选股逻辑：过滤 ST / 退市、流通市值与成交额过小的股票后，按趋势、活跃度、估值、规模综合打分，各市场取前 20 名。港股实时接口无 60 日涨跌幅，趋势分仅用当日涨跌幅。<br>
+选股逻辑：过滤 ST / 退市、流通市值与成交额过小的股票后，按趋势、活跃度、估值、规模综合打分，各市场取前 20 名。数据来源：东方财富免费行情接口（直连 + AKShare / 新浪兜底）。<br>
 遇到节假日、行情接口故障或 GitHub 定时任务延迟，页面可能显示上一次的结果，请以页面上的更新时间为准。</p>
 </div></body></html>
 """
@@ -290,8 +400,10 @@ def main():
     now = datetime.now(CST)
     updated = now.strftime("%Y-%m-%d %H:%M")
 
-    df_a = fetch_with_retry("A股", ak.stock_zh_a_spot_em, ak.stock_zh_a_spot)
-    df_hk = fetch_with_retry("港股", ak.stock_hk_spot_em, ak.stock_hk_spot)
+    df_a = fetch_market("A股", EM_HOSTS_A, EM_FS_A, "A",
+                        ak.stock_zh_a_spot_em, ak.stock_zh_a_spot)
+    df_hk = fetch_market("港股", EM_HOSTS_HK, EM_FS_HK, "HK",
+                         ak.stock_hk_spot_em, ak.stock_hk_spot)
 
     top_a = pick_rows(score_a(df_a), "A", TOP_N)
     top_hk = pick_rows(score_hk(df_hk), "HK", TOP_N)
@@ -299,7 +411,7 @@ def main():
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
     os.makedirs(out_dir, exist_ok=True)
-    html = HTML_HEAD.format(updated=updated)
+    html = HTML_HEAD.replace("{updated}", updated)
     html += table_html("🇨🇳 A 股 Top 20", top_a, "A")
     html += table_html("🇭🇰 港股 Top 20", top_hk, "HK")
     html += HTML_FOOT
