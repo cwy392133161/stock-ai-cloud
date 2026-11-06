@@ -1,0 +1,41 @@
+# 每天工作日北京时间 17:10 自动选股，并把结果发布到 GitHub Pages
+# 北京时间 17:10 = UTC 09:10；GitHub 定时任务可能延迟几分钟到几十分钟
+name: Daily stock screening and Pages
+
+on:
+  schedule:
+    - cron: "10 9 * * 1-5"
+  workflow_dispatch:  # 允许在 Actions 页面点 Run workflow 手动跑一次
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-screening
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 运行选股
+        run: python picker.py
+
+      - name: 提交结果（仅当页面有变化）
+        run: |
+          git config user.name "stock-bot"
+          git config user.email "stock-bot@users.noreply.github.com"
+          git add docs/index.html docs/data.json
+          git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
