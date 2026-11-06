@@ -17,6 +17,9 @@ import json
 import os
 import sys
 import time
+from html import escape as escape_html
+
+from market_quality import MarketDataQualityError, validate_market_data
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -114,7 +117,8 @@ def fetch_em_clist(host, fs, market):
     total = int(data.get("total") or 0)
     if total <= 0 or not data.get("diff"):
         raise ValueError("东财接口返回空数据")
-    rows = list(data["diff"])
+    first_page = data["diff"]
+    rows = list(first_page.values()) if isinstance(first_page, dict) else list(first_page)
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     for page in range(2, pages + 1):
         time.sleep(_page_delay())
@@ -122,7 +126,11 @@ def fetch_em_clist(host, fs, market):
         r = requests.get(base, params=params, headers=UA, timeout=20)
         r.raise_for_status()
         diff = (r.json().get("data") or {}).get("diff") or []
-        rows.extend(diff)
+        rows.extend(diff.values() if isinstance(diff, dict) else diff)
+    if len(rows) < total * 0.98:
+        raise ValueError(f"东财分页不完整：预期 {total} 行，实际 {len(rows)} 行")
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError("东财分页格式异常（非证券对象）")
     df = pd.DataFrame(rows)
     keep = [c for c in EM_COLS if c in df.columns]
     df = df[keep].rename(columns=EM_COLS)
@@ -155,12 +163,20 @@ def fetch_em_market(label, hosts, fs, market):
 def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
     """按顺序尝试：东财直连（轮换服务器）→ AKShare 东财源 → AKShare 新浪源。
     每路失败后按退避等待再试下一路；全部失败则抛错。"""
-    waits = _retry_waits()
+    waits = _retry_waits() or [0]
     attempts = [("东财直连", lambda: fetch_em_market(label, hosts, fs, market))]
     if ak is not None:
         attempts.append(("AKShare 东财", ak_primary))
+        if market == "A":
+            def regional_quotes():
+                # Try smaller Eastmoney market segments when the all-market request fails.
+                funcs = ("stock_sh_a_spot_em", "stock_sz_a_spot_em", "stock_bj_a_spot_em")
+                if not all(hasattr(ak, name) for name in funcs):
+                    raise RuntimeError("当前 AKShare 不具备全部 A 股分市场接口")
+                return pd.concat([getattr(ak, name)() for name in funcs], ignore_index=True)
+            attempts.append(("AKShare 沪深京分市场", regional_quotes))
         if ak_fallback is not None:
-            attempts.append(("AKShare 新浪", ak_fallback))
+            attempts.append(("AKShare 新浪（需字段质量核验）", ak_fallback))
     last_err = None
     for i, (name, fn) in enumerate(attempts):
         if i > 0:
@@ -172,12 +188,15 @@ def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
             if df is None or len(df) == 0:
                 raise ValueError("接口返回空数据")
             df = _standardize(df)
-            print(f"[{label}] {name}成功：{len(df)} 行", flush=True)
+            quality = validate_market_data(df, label, name)
+            df.attrs["quality"] = quality
+            print(f"[{label}] {name}质量合格：{len(df)} 行；"
+                  f"字段有效覆盖 {quality['字段有效覆盖率%']}", flush=True)
             return df
         except Exception as e:  # noqa: BLE001 - 任何接口异常都按限流/故障处理
             last_err = e
             print(f"[{label}] {name}失败：{str(e)[:200]}", flush=True)
-    raise RuntimeError(f"{label} 数据拉取失败：{last_err}")
+    raise RuntimeError(f"{label} 未找到字段完整且合格的行情源；最后一次失败：{last_err}")
 
 
 def _standardize(df):
@@ -221,10 +240,9 @@ def score_a(df):
     if "名称" in d.columns:
         d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
-    if d["流通市值"].notna().any():
-        d = d[d["流通市值"] >= MIN_FLOAT_CAP_A]
-    if d["成交额"].notna().any():
-        d = d[d["成交额"] >= MIN_AMOUNT_A]
+    # 未知市值/成交额不能视为通过原有门槛；覆盖不足已由全市场质量检查拦截。
+    d = d[(d["流通市值"] >= MIN_FLOAT_CAP_A) &
+          (d["成交额"] >= MIN_AMOUNT_A)]
     d = d.dropna(subset=["涨跌幅"])
 
     trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
@@ -260,10 +278,8 @@ def score_hk(df):
     if "名称" in d.columns:
         d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
-    if d["流通市值"].notna().any():
-        d = d[d["流通市值"] >= MIN_FLOAT_CAP_HK]
-    if d["成交额"].notna().any():
-        d = d[d["成交额"] >= MIN_AMOUNT_HK]
+    d = d[(d["流通市值"] >= MIN_FLOAT_CAP_HK) &
+          (d["成交额"] >= MIN_AMOUNT_HK)]
     d = d.dropna(subset=["涨跌幅"])
 
     if d["60日涨跌幅"].notna().any():
@@ -410,6 +426,9 @@ def main():
     top_a = pick_rows(score_a(df_a), "A", TOP_N)
     top_hk = pick_rows(score_hk(df_hk), "HK", TOP_N)
     print(f"A 股候选 {len(df_a)} 只，入选 {len(top_a)} 只；港股候选 {len(df_hk)} 只，入选 {len(top_hk)} 只", flush=True)
+    if len(top_a) != TOP_N or len(top_hk) != TOP_N:
+        raise MarketDataQualityError("通过有效市值、成交额门槛的股票不足 Top 20，保留已有榜单")
+    quality = {"A股": df_a.attrs["quality"], "港股": df_hk.attrs["quality"]}
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
     os.makedirs(out_dir, exist_ok=True)
@@ -421,13 +440,22 @@ def main():
         ai_link = '<p class="sub">📝 AI 深度分析待配置 DeepSeek 密钥后开启。</p>'
     html = HTML_HEAD.replace("{updated}", updated)
     html += ai_link
+    for m in ("A股", "港股"):
+        q = quality[m]
+        cov = q["字段有效覆盖率%"]
+        text = ("行情质量核验：" + m + " · " + q["行情来源"]
+                + " · 有效股票 " + str(q["有效股票数"])
+                + " · 60日涨幅 " + str(cov["60日涨跌幅"]) + "%"
+                + " · 换手率 " + str(cov["换手率"]) + "%"
+                + " · 流通市值 " + str(cov["流通市值"]) + "%")
+        html += '<p class="sub">' + escape_html(text) + '</p>'
     html += table_html("🇨🇳 A 股 Top 20", top_a, "A")
     html += table_html("🇭🇰 港股 Top 20", top_hk, "HK")
     html += HTML_FOOT
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
-        json.dump({"updated": updated, "a_shares": top_a, "hk_shares": top_hk},
+        json.dump({"updated": updated, "quality": quality, "a_shares": top_a, "hk_shares": top_hk},
                   f, ensure_ascii=False, indent=2)
     print(f"已生成 docs/index.html（更新时间 {updated}）", flush=True)
     return 0
