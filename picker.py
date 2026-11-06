@@ -52,6 +52,15 @@ def _num(series):
     return pd.to_numeric(series, errors="coerce")
 
 
+def _col(d, name):
+    """取一列转数字；列不存在时返回全 NaN。
+    A 股和港股接口的字段并不完全一致（如港股没有换手率），缺失列按中性处理，
+    不能直接按列名取值，否则会 KeyError。"""
+    if name in d.columns:
+        return _num(d[name])
+    return pd.Series(float("nan"), index=d.index)
+
+
 def fetch_with_retry(label, primary, fallback):
     """先跑主接口，失败按退避重试；仍失败再试备用接口；都失败则抛错。"""
     last_err = None
@@ -91,22 +100,26 @@ def _rank_pct(s):
 def score_a(df):
     """A 股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。"""
     d = df.copy()
-    d["涨跌幅"] = _num(d["涨跌幅"])
-    d["60日涨跌幅"] = _num(d["60日涨跌幅"]) if "60日涨跌幅" in d else pd.Series(float("nan"), index=d.index)
-    d["年初至今涨跌幅"] = _num(d["年初至今涨跌幅"]) if "年初至今涨跌幅" in d else pd.Series(float("nan"), index=d.index)
-    d["换手率"] = _num(d["换手率"])
-    d["量比"] = _num(d["量比"])
-    d["市盈率-动态"] = _num(d["市盈率-动态"])
-    d["市净率"] = _num(d["市净率"])
-    d["流通市值"] = _num(d["流通市值"])
-    d["成交额"] = _num(d["成交额"])
-    d["振幅"] = _num(d["振幅"])
+    d["最新价"] = _col(d, "最新价")
+    d["涨跌幅"] = _col(d, "涨跌幅")
+    d["60日涨跌幅"] = _col(d, "60日涨跌幅")
+    d["年初至今涨跌幅"] = _col(d, "年初至今涨跌幅")
+    d["换手率"] = _col(d, "换手率")
+    d["量比"] = _col(d, "量比")
+    d["市盈率-动态"] = _col(d, "市盈率-动态")
+    d["市净率"] = _col(d, "市净率")
+    d["流通市值"] = _col(d, "流通市值")
+    d["成交额"] = _col(d, "成交额")
+    d["振幅"] = _col(d, "振幅")
 
-    # 过滤：ST / 退市、停牌（无价）、市值与成交额过小
-    d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
+    # 过滤：ST / 退市、停牌（无价）、市值与成交额过小（字段缺失时跳过该项过滤）
+    if "名称" in d.columns:
+        d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
-    d = d[d["流通市值"] >= MIN_FLOAT_CAP_A]
-    d = d[d["成交额"] >= MIN_AMOUNT_A]
+    if d["流通市值"].notna().any():
+        d = d[d["流通市值"] >= MIN_FLOAT_CAP_A]
+    if d["成交额"].notna().any():
+        d = d[d["成交额"] >= MIN_AMOUNT_A]
     d = d.dropna(subset=["涨跌幅"])
 
     trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
@@ -126,19 +139,23 @@ def score_hk(df):
     """港股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。
     港股实时接口没有 60 日涨跌幅，趋势分用当日涨跌幅。"""
     d = df.copy()
-    d["涨跌幅"] = _num(d["涨跌幅"])
-    d["换手率"] = _num(d["换手率"])
-    d["量比"] = _num(d["量比"])
-    d["市盈率"] = _num(d["市盈率"])
-    d["市净率"] = _num(d["市净率"])
-    d["流通市值"] = _num(d["流通市值"])
-    d["成交额"] = _num(d["成交额"])
-    d["振幅"] = _num(d["振幅"])
+    d["最新价"] = _col(d, "最新价")
+    d["涨跌幅"] = _col(d, "涨跌幅")
+    d["换手率"] = _col(d, "换手率")
+    d["量比"] = _col(d, "量比")
+    d["市盈率"] = _col(d, "市盈率")
+    d["市净率"] = _col(d, "市净率")
+    d["流通市值"] = _col(d, "流通市值")
+    d["成交额"] = _col(d, "成交额")
+    d["振幅"] = _col(d, "振幅")
 
-    d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
+    if "名称" in d.columns:
+        d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
-    d = d[d["流通市值"] >= MIN_FLOAT_CAP_HK]
-    d = d[d["成交额"] >= MIN_AMOUNT_HK]
+    if d["流通市值"].notna().any():
+        d = d[d["流通市值"] >= MIN_FLOAT_CAP_HK]
+    if d["成交额"].notna().any():
+        d = d[d["成交额"] >= MIN_AMOUNT_HK]
     d = d.dropna(subset=["涨跌幅"])
 
     trend = _rank_pct(d["涨跌幅"])
