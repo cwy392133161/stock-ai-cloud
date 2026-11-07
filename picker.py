@@ -21,6 +21,7 @@ from html import escape as escape_html
 
 from market_quality import MarketDataQualityError, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
+from peer_fundamentals import candidate_pool
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -368,6 +369,7 @@ def pick_rows(d, market, n, industry_reference=None):
             "60日涨跌幅": safe_number(r.get("60日涨跌幅")),
             "年初至今涨跌幅": safe_number(r.get("年初至今涨跌幅")),
             "行业": industry,
+            "流通市值数值": safe_number(r.get("流通市值")),
             "行业估值参考": industry_reference.get(industry) if market == "A" else None,
             "成交额": fmt_money(r["成交额"], "元" if market == "A" else "港币"),
             "流通市值": fmt_money(r["流通市值"], "元" if market == "A" else "港币"),
@@ -452,6 +454,9 @@ def main():
     sector_reference = industry_benchmarks(ranked_a)
     top_a = pick_rows(ranked_a, "A", TOP_N, sector_reference)
     top_hk = pick_rows(ranked_hk, "HK", TOP_N)
+    # Persist a bounded reproducible, similarity-sized peer candidate pool
+    # without changing scores, Top20 or the original price snapshot.
+    a_peer_pool = candidate_pool(ranked_a, top_a[:5])
     print(f"A 股候选 {len(df_a)} 只，入选 {len(top_a)} 只；港股候选 {len(df_hk)} 只，入选 {len(top_hk)} 只", flush=True)
     if len(top_a) != TOP_N or len(top_hk) != TOP_N:
         raise MarketDataQualityError("通过有效市值、成交额门槛的股票不足 Top 20，保留已有榜单")
@@ -482,7 +487,8 @@ def main():
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
-        json.dump({"updated": updated, "quality": quality, "a_shares": top_a, "hk_shares": top_hk},
+        json.dump({"updated": updated, "quality": quality, "a_shares": top_a,
+                   "hk_shares": top_hk, "a_peer_pool": a_peer_pool},
                   f, ensure_ascii=False, indent=2)
     print(f"已生成 docs/index.html（更新时间 {updated}）", flush=True)
     return 0
