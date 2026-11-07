@@ -22,8 +22,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: research-offline-tests
-  cancel-in-progress: true
+  group: research-offline-tests-v2
+  cancel-in-progress: false
 
 jobs:
   verify:
