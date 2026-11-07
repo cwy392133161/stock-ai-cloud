@@ -33,7 +33,7 @@ class FilingTextTests(unittest.TestCase):
         self.assertTrue(notices[2]["正文摘录"])
 
     def test_explicit_table_columns_unit_and_reporting_context(self):
-        pages = ("2026年第三季度报告\\n单位：人民币百万元\\n"
+        pages = ("2026年第三季度报告\\n单位：人民币百万元\n"
                  "项目  本期金额  上年同期\\n营业收入  3,200  2,600")
         with patch("filing_text.subprocess.run",
                    return_value=Mock(stdout=pages.encode())):
@@ -44,27 +44,21 @@ class FilingTextTests(unittest.TestCase):
         self.assertIn("第三季度", matched["期间上下文"])
 
     def test_missing_unit_never_inferred(self):
-        text = "项目  本期  上期\\n营业收入  3,200  2,600"
+        content = "项目  本期  上期\\n营业收入  3,200  2,600"
         with patch("filing_text.subprocess.run",
-                   return_value=Mock(stdout=text.encode())):
+                   return_value=Mock(stdout=content.encode())):
             snippets = extract(b"fixture")
         self.assertEqual(snippets[0]["单位"], "未定位")
         self.assertEqual(snippets[0]["期间上下文"], "未定位")
 
     def test_hk_thousands_unit_not_converted_to_full_currency(self):
-        text = ("For the six months ended 30 June 2026\\n"
-                "Units: HK
-        self.assertFalse(trusted("https://static.cninfo.com.cn.example.org/report.pdf"))
-        self.assertFalse(trusted("http://www1.hkexnews.hk/report.pdf"))
-000\\nParticulars  2026  2025\\n"
-                "Revenue  3,200  2,600")
+        content = ("For the six months ended 30 June 2026\\n"
+                   "Units: HK$'000\\nParticulars  2026  2025\\n"
+                   "Revenue  3,200  2,600")
         with patch("filing_text.subprocess.run",
-                   return_value=Mock(stdout=text.encode())):
+                   return_value=Mock(stdout=content.encode())):
             snippets = extract(b"fixture")
-        self.assertTrue(any("HK
-        self.assertFalse(trusted("https://static.cninfo.com.cn.example.org/report.pdf"))
-        self.assertFalse(trusted("http://www1.hkexnews.hk/report.pdf"))
-000" in x["单位"] for x in snippets))
+        self.assertTrue(any("HK$'000" in x["单位"] for x in snippets))
         self.assertTrue(any("2026  2025" in x["表头"] for x in snippets))
         self.assertTrue(any("six months" in x["期间上下文"] for x in snippets))
 
