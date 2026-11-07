@@ -55,8 +55,8 @@ def download(url):
 UNIT_LINE = re.compile(
     r"(?:金额单位|金額單位|货币单位|貨幣單位|计量单位|計量單位|单位|單位|units?)"
     r"\s*[：:=]\s*(?:人民币|人民幣|港币|港幣|港元|美元|元|千元|万元|萬元|百万元|百萬|亿|億|"
-    r"RMB|HKD|USD|HK\\$|US\\$|CNY)[^。；;]{0,40}|"
-    r"(?:RMB|HKD|USD|HK\\$|US\\$)\s*['’]?\s*0{3}\b",
+    r"RMB|HKD|USD|HK\$|US\$|CNY)[^。；;]{0,40}|"
+    r"(?:RMB|HKD|USD|HK\$|US\$)\s*['’]?\s*0{3}\b",
     re.I,
 )
 PERIOD_LINE = re.compile(
