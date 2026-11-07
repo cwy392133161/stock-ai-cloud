@@ -259,7 +259,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
                                  + '">打开官方 PDF 对应页</a></details>')
             parts.append('</section>')
         parts.append(finance_html(finance))
-        parts.append(render_research_brief(build_research_brief(s, finance, evidence)))
+        parts.append(render_research_brief(build_research_brief(s, finance, evidence, data.get('updated'))))
         comparison = financial_comparison(finance)
         if comparison:
             parts.append('<p><b>同口径财务核对</b><br>' + esc(comparison) + '</p>')
@@ -318,7 +318,7 @@ def main():
         disclosures[market, code] = evidence
         print(f"公告查询 {market} {code}：{evidence['状态']}，{len(evidence['公告'])} 条", flush=True)
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示","市盈率-动态","市净率","行业","行业估值参考","60日涨跌幅","年初至今涨跌幅")}
-        brief = build_research_brief(s, finance, evidence)
+        brief = build_research_brief(s, finance, evidence, data.get('updated'))
         comparison = financial_comparison(finance)
         prompt = (
             "你是证券基本面研究员，需要在可核实的数据下建立反方论证。仅依据本条提供的行情、"
