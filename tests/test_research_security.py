@@ -98,7 +98,7 @@ class EvidenceGateTests(unittest.TestCase):
         brief = build_research_brief({"代码":"000690"}, f, e, "2026-11-06 23:25")
         accepted = assess_model_research(json.dumps(model(), ensure_ascii=False),
                                           brief, e["公告"])
-        self.assertEqual(accepted["状态"], "解释性研究已通过基础发布门槛")
+        self.assertEqual(accepted["状态"], "解释性研究已通过基础发布门槛", accepted)
         self.assertEqual(len(accepted["原文短引"]), 1)
         corrupted = model()
         corrupted["source_quotes"][0]["quote"] = "不存在于原文的利好"
