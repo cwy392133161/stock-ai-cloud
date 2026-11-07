@@ -35,7 +35,7 @@ class ReportGuardTests(unittest.TestCase):
         body = ai_report.cited_narrative(content, notices)
         self.assertIn("内容成本刚性", body)
         self.assertIn("#page=2", body)
-        self.assertIn("版权合同", body)
+        self.assertNotIn("版权合同正在续签", body)  # 没有PDF页码支撑的经营事件不发布
         self.assertNotIn("高于", body)
         self.assertNotIn("相反", body)
 
@@ -92,6 +92,52 @@ class ReportGuardTests(unittest.TestCase):
         self.assertIn("HK$&#x27;000", page)
         self.assertIn("Particulars  2026  2025", page)
         self.assertIn("#page=3", page)
+
+    def test_uncited_corporate_events_are_removed(self):
+        content = ("入选逻辑：股价近期较强但不等于经营改善。"
+                   "公司已收到海外大额订单。相关合同正在续签。"
+                   "跟踪条件：关注下一期收入变化。")
+        body = ai_report.cited_narrative(content, [])
+        self.assertNotIn("已收到海外大额订单", body)
+        self.assertNotIn("合同正在续签", body)
+        self.assertIn("关注下一期收入变化", body)
+
+    def test_unknown_citation_is_not_published_as_an_unverified_fact(self):
+        content = "公司披露新增业务订单[D2 p19]。"
+        notices = [{
+            "编号": "D1", "链接": "https://example.com/filing.pdf",
+            "正文摘录": [{"页": 3, "摘录": "其他"}],
+        }]
+        body = ai_report.cited_narrative(content, notices)
+        self.assertNotIn("新增业务订单", body)
+        self.assertIn("未通过发布校验", body)
+
+    def test_numeric_hallucination_and_target_prices_removed(self):
+        for content in (
+            "入选逻辑：收入增长了50%，预计继续大涨。",
+            "公司合理目标价为35.6元。",
+            "建议买入这家公司以保证收益。",
+            "反面证据：经营现金流较营收高出十倍。",
+        ):
+            with self.subTest(content=content):
+                body = ai_report.cited_narrative(content, [])
+                self.assertIn("未通过发布校验", body)
+
+    def test_qualified_research_renders_deterministic_checklist(self):
+        data = {"updated": "2026-11-06"}
+        stock = {"代码": "000690", "名称": "样例股份", "评分": 80,
+                 "入选原因": "60日上涨", "风险提示": "短期涨幅较大"}
+        finance = {"状态": "无可用指标", "指标": {}}
+        model_text = "入选逻辑：排名较高并不能证明企业经营改善。\n\n跟踪条件：下期需要核验收入和现金流资料。"
+        with patch.object(ai_report, "financial_comparison", return_value=""):
+            html = ai_report.render_report(
+                data, [("A股", stock, model_text, finance)], "2026-11-07"
+            )
+        self.assertIn("研究证据与反向核对", html)
+        self.assertIn("下期验证清单", html)
+        self.assertIn("来源覆盖情况", html)
+        self.assertIn("入选逻辑：排名较高", html)
+        self.assertIn("</p><p>", html)
 
     def test_only_program_can_publish_comparison(self):
         rows = [("A股", {"代码": "000690", "名称": "宝新能源"},
