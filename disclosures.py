@@ -1,5 +1,6 @@
 """Recent official filing titles and document links, anchored to the snapshot date."""
 from filing_text import IMPORTANT
+from period_reports import filing_search_windows, period_title_score
 
 import html
 import json
@@ -65,29 +66,94 @@ def hk_rows(code, start, end):
             yield day, row["TITLE"], row["FILE_LINK"]
 
 
-def fetch_disclosures(market, code, as_of):
+
+def _market_rows(market, code, start, end):
+    if market == "A股":
+        return cn_rows(re.sub(r"^(sh|sz|bj)", "", code.lower()), start, end)
+    return hk_rows(code.zfill(5), start, end)
+
+
+def _valid_notice(day, raw_title, path, market, start, end):
+    host = STATIC if market == "A股" else HK
+    title = html.unescape(re.sub("<[^>]+>", "", str(raw_title))).strip()
+    if not isinstance(path, str) or not path or not isinstance(day, date):
+        return None
+    url = urljoin(host + "/", path)
+    parts = urlsplit(url)
+    if not (title and start <= day <= end and parts.scheme == "https"
+            and parts.netloc == urlsplit(host).netloc and parts.path.lower().endswith(".pdf")):
+        return None
+    return {"日期": day.isoformat(), "标题": title, "链接": url}
+
+
+def fetch_disclosures(market, code, as_of, report_period=None):
+    """Recent notices plus at most one independently matched fiscal-period report.
+
+    A matching title is never presented as verified PDF financial information.
+    Reports outside the recent 30-day window can be recovered without returning
+    extra low-value announcements to the model.
+    """
     end = date.fromisoformat(as_of)
     start = end - timedelta(days=29)
-    mainland = market == "A股"
-    host = STATIC if mainland else HK
-    result = {"来源": "巨潮资讯" if mainland else "港交所披露易",
+    result = {"来源": "巨潮资讯" if market == "A股" else "港交所披露易",
               "查询期间": f"{start} 至 {end}", "状态": "未核实", "公告": []}
+    recent = {}
+    skipped = False
     try:
-        rows = (cn_rows(re.sub(r"^(sh|sz|bj)", "", code.lower()), start, end) if mainland
-                else hk_rows(code.zfill(5), start, end))
-        notices = {}
-        skipped = False
-        for day, raw_title, path in rows:
-            title = html.unescape(re.sub("<[^>]+>", "", raw_title)).strip()
-            url = urljoin(host + "/", path)
-            parts = urlsplit(url)
-            if not (title and path and start <= day <= end and parts.scheme == "https"
-                    and parts.netloc == urlsplit(host).netloc and parts.path.lower().endswith(".pdf")):
+        for day, title, path in _market_rows(market, code, start, end):
+            item = _valid_notice(day, title, path, market, start, end)
+            if item is None:
                 skipped = True
                 continue
-            notices[url] = {"日期": day.isoformat(), "标题": title, "链接": url}
-        result["公告"] = sorted(notices.values(), key=lambda item: (bool(IMPORTANT.search(item["标题"])), item["日期"]), reverse=True)[:3]
-        result["状态"] = "已取得公告索引" if notices else ("索引条目未核实" if skipped else "查询期内未检索到匹配公告")
+            recent[item["链接"]] = item
+        result["状态"] = ("已取得公告索引" if recent else
+                         "索引条目未核实" if skipped else "查询期内未检索到匹配公告")
     except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
         result["状态"] = f"公告查询未核实（{type(exc).__name__}）"
+
+    ranked = sorted(recent.values(),
+                    key=lambda n: (bool(IMPORTANT.search(n["标题"])), n["日期"]),
+                    reverse=True)
+    if report_period:
+        report = {"报告期": report_period, "状态": "未找到标题可确认的同报告期财报"}
+        best = None
+        best_score = 0
+        try:
+            windows = filing_search_windows(report_period, as_of)
+            if not windows:
+                report["状态"] = "报告期超出有限查询窗口，未核实"
+            else:
+                # Check already fetched notices before querying historical windows.
+                for item in recent.values():
+                    score = period_title_score(item["标题"], report_period, market)
+                    if score > best_score:
+                        best, best_score = item, score
+                if best_score < 60:
+                    for window_start, window_end in windows:
+                        for day, title, path in _market_rows(market, code, window_start, window_end):
+                            item = _valid_notice(day, title, path, market, window_start, window_end)
+                            if not item:
+                                continue
+                            score = period_title_score(item["标题"], report_period, market)
+                            if score > best_score:
+                                best, best_score = item, score
+                        if best_score >= 60:
+                            break
+                if best:
+                    report.update({"状态": "标题与报告期匹配，PDF正文待核验",
+                                   "公告日期": best["日期"], "标题": best["标题"],
+                                   "链接": best["链接"]})
+                    matched = {**best, "报告期匹配": report_period}
+                    # Reserve D1 for the fiscal report, leaving at most two
+                    # recent announcements. Total PDF budget is unchanged.
+                    ranked = [matched] + [item for item in ranked if item["链接"] != best["链接"]][:2]
+        except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
+            report["状态"] = f"对应报告期财报检索未核实（{type(exc).__name__}）"
+            # Preserve a previously matched report if later search fails.
+            if best:
+                report.update({"公告日期": best["日期"], "标题": best["标题"], "链接": best["链接"]})
+                ranked = [{**best, "报告期匹配": report_period}] + [
+                    item for item in ranked if item["链接"] != best["链接"]][:2]
+        result["对应报告期财报"] = report
+    result["公告"] = ranked[:3]
     return result
