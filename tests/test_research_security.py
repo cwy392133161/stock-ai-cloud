@@ -123,7 +123,10 @@ class EvidenceGateTests(unittest.TestCase):
         snapshot = {"updated": "2026-11-06 23:25"}
         partial = research_freshness(snapshot, report, True, "success")
         self.assertEqual(partial["state"], "partial")
-        self.assertIn('data-report-state="partial"', update_index(index, partial, True))
+        first = update_index(index, partial, True)
+        self.assertIn('data-report-state="partial"', first)
+        # report_only can run repeatedly without picker rebuilding index.html
+        self.assertEqual(update_index(first, partial, True), first)
         stale = research_freshness(
             {"updated":"2026-11-07 23:25"}, report, True, "success")
         self.assertEqual(stale["state"], "stale")
