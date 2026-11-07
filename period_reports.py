@@ -80,8 +80,11 @@ def period_title_score(title, period, market):
     q3 = bool(re.search(r"第?[三3]季度|三季报|三季報|third quarter|q3\b", text))
     interim = bool(re.search(r"半年度|半年报|半年度報告|中期|interim|"
                              r"six months|6 months|half.year", text))
-    annual = bool(re.search(r"年度报告|年度報告|年报|年報|全年|annual|"
-                            r"full.year|final results|年度業績|年度业绩", text))
+    # '半年度报告' and '半年报' contain the annual-report substrings;
+    # an interim statement must never be classified as both kinds.
+    annual = bool(re.search(r"(?<!半)年度报告|(?<!半)年度報告|(?<!半)年报|(?<!半)年報|"
+                            r"全年|\\bannual\\b|full.year|final results|"
+                            r"(?<!半)年度業績|(?<!半)年度业绩", text))
     kinds = int(q1) + int(q3) + int(interim) + int(annual)
     if kinds > 1:
         return 0  # E.g. a correction comparing both interim and annual periods.
