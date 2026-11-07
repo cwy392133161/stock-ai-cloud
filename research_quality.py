@@ -26,15 +26,30 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
     valuation_good = bool(valuation.get("PE动态") or valuation.get("PB"))
     peer_good = bool(valuation.get("行业参考"))
     as_of = str(snapshot_date)[:10]
-    not_future = True
+    # No market snapshot date means no as-of claim. A fiscal period is NOT
+    # the publication date and cannot substitute for a missing timestamp.
+    not_future = False
+    snapshot_verified = False
     try:
+        snapshot = date.fromisoformat(as_of)
+        snapshot_verified = True
         current_period = finance.get("报告期")
         if current_period:
-            not_future = date.fromisoformat(str(current_period)) <= date.fromisoformat(as_of)
-    except (TypeError, ValueError):
+            not_future = date.fromisoformat(str(current_period)) <= snapshot
+        else:
+            not_future = False
+        published = finance.get("披露日期")
+        if published and published != "接口未提供":
+            not_future = not_future and date.fromisoformat(str(published)[:10]) <= snapshot
+        if any(date.fromisoformat(str(n["日期"])[:10]) > snapshot
+               for n in evidence.get("公告", [])):
+            not_future = False
+    except (TypeError, ValueError, KeyError):
         not_future = False
 
     criteria = {
+        "行情快照日期已确认": snapshot_verified,
+        "财务与公告未晚于行情快照": not_future,
         "当前财务指标": current and not_future,
         "至少2个同报告季跨年样本": isinstance(periods, int) and periods >= 2,
         "至少3个同报告季跨年样本": isinstance(periods, int) and periods >= 3,
