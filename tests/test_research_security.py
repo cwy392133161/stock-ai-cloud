@@ -2,7 +2,7 @@
 import json
 import unittest
 
-from ai_report import assess_model_research
+from ai_report import assess_model_research, review_narrative
 from evidence_guard import decode_report, validate_source_quote
 from publish_guard import research_freshness, update_index
 from research_brief import build_research_brief
@@ -106,6 +106,18 @@ class EvidenceGateTests(unittest.TestCase):
                                           brief, e["公告"])
         self.assertEqual(rejected["状态"], "仅发布可核对事实")
         self.assertFalse(rejected["章节"])
+
+    def test_unsupported_operating_achievements_filtered_without_numbers(self):
+        for claim in (
+            "公司核心产品市场份额持续上升。",
+            "目前在手订单显著增长。",
+            "企业产能已大幅提升。",
+            "核心产品销量快速增长。",
+        ):
+            with self.subTest(claim=claim):
+                self.assertFalse(review_narrative(claim))
+        caveat = "当前指标不能证明公司核心产品市场份额持续上升。"
+        self.assertIn("不能证明", review_narrative(caveat))
 
     def test_plain_legacy_text_is_never_treated_as_audited_research(self):
         f = financial()
