@@ -12,6 +12,7 @@ from finance_facts import financial_comparison
 from research_brief import build_research_brief
 from evidence_guard import SECTIONS, decode_report, verified_quotes, verified_claims
 from peer_fundamentals import analyze_peer_financials, MAX_CALLS
+from research_differentiation import duplicate_reports
 from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -319,10 +320,28 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         brief = build_research_brief(stock, finance, item, data.get("updated"), peers)
         assessment = assess_model_research(content, brief, item.get("公告", []))
         verified[(market, str(stock.get("代码", "")))] = (brief, assessment)
+    # Compare substantive prose across issuer reports, not merely whether
+    # each JSON was syntactically valid. Near-identical articles fail closed.
+    candidates = []
+    for market, stock, _, _ in output:
+        code = str(stock.get("代码", ""))
+        assessment = verified[(market, code)][1]
+        sections = assessment["章节"] if assessment["状态"] == "解释性研究已通过基础发布门槛" else {}
+        candidates.append((market, code, sections))
+    duplicated = duplicate_reports(candidates)
+    for index, reason in duplicated.items():
+        market, stock, _, _ = output[index]
+        key = (market, str(stock.get("代码", "")))
+        brief, assessment = verified[key]
+        verified[key] = (brief, {
+            **assessment, "状态": "仅发布可核对事实", "章节": {},
+            "原文短引": [], "直接证据主张": [],
+            "原因": assessment.get("原因", []) + [reason["原因"]],
+        })
     approved = sum(result["状态"] == "解释性研究已通过基础发布门槛"
                    for _, result in verified.values())
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
-             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .ai-insight{border:1px solid #d8e2ef;padding:12px;border-radius:8px}article .limited{background:#f9f9f9}article details{margin:12px 0}article summary{cursor:pointer;font-weight:600}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
+             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .ai-insight{border:1px solid #d8e2ef;padding:12px;border-radius:8px}article .issuer-focus{background:#eef5fd;padding:12px;border-radius:8px}article .limited{background:#f9f9f9}article details{margin:12px 0}article summary{cursor:pointer;font-weight:600}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
              '<meta name="research-approved-count" content="' + str(approved) + '"><meta name="research-total-count" content="' + str(len(output)) + '">',
              '<h1>可复核的股票研究档案</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
@@ -345,6 +364,13 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         query_code = re.sub(r"^(?:sh|sz|bj)(?=[0-9]{6}$)", "", code, flags=re.I) if market == "A股" else code
         parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(query_code)+' 查询，核对报告期和披露日期）</p>')
         brief, assessment = verified[(market, code)]
+        focus = brief.get("聚焦问题") or {}
+        if focus:
+            parts.append('<p class="issuer-focus"><b>本公司研究焦点：' +
+                         esc(focus.get("研究主题", "资料边界核查")) +
+                         '</b><br>' + esc(focus.get("核心矛盾", "")) +
+                         '<br><small>跟踪：' + esc(focus.get("下一期关键问题", "")) +
+                         '</small></p>')
         if (market, code) in archived_codes:
             assessment = {**assessment, "状态": "仅发布可核对事实",
                           "原因": ["原有研究已归档，不能当作本期分析结论"]}
@@ -455,6 +481,8 @@ def main():
             '{"sections":{"入选逻辑":"约90字","经营和估值":"约120字","反面证据":"约100字","跟踪条件":"约100字"},'
             '"source_quotes":[{"citation":"D1 p3","quote":"从对应页摘录逐字复制8到180字连续原文"}],'
             '"source_claims":[{"citation":"D1 p3","type":"直接披露","quote":"官方PDF摘录连续8至180字原句","claim":"必须从quote逐字复制一个8至150字完整事实子句"}]}。'
+            "四章节必须围绕输入'研究底稿.聚焦问题'中真实的个股矛盾展开，"
+            "不得复制其他公司的通用观点，也不要依靠替换股票名称制造差异；"
             "四章节只作谨慎的分析解释、反事实挑战和下一期可核验条件，"
             "不得独立陈述任何未经证实的经营事件，也不要引用公司公告标题推断其正文。"
             "事实须采用source_claims，claim必须是quote中的逐字连续子句，"
