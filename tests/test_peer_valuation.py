@@ -36,6 +36,26 @@ class ValuationTests(unittest.TestCase):
         self.assertIn("缺乏", ref["状态"])
         self.assertIsNone(ref["行业参考"])
 
+    def test_individual_extreme_pe_pb_cannot_compare_with_filtered_sector(self):
+        rows = pd.DataFrame([
+            {"行业":"制造业", "市盈率-动态": 15 + i % 6,
+             "市净率": 1.2 + i / 100} for i in range(25)
+        ])
+        benchmark = industry_benchmarks(rows)["制造业"]
+        outlier = valuation_context({
+            "行业": "制造业", "市盈率-动态": 160,
+            "市净率": 18, "行业估值参考": benchmark,
+        })
+        self.assertIsNone(outlier["PE动态"])
+        self.assertIsNone(outlier["PB"])
+        self.assertIsNone(outlier["行业参考"])
+        ordinary = valuation_context({
+            "行业": "制造业", "市盈率-动态": 18,
+            "市净率": 1.4, "行业估值参考": benchmark,
+        })
+        self.assertIn("动态PE", ordinary["行业参考"])
+        self.assertIn("PB", ordinary["行业参考"])
+
     def test_quality_never_claims_professional_on_sparse_evidence(self):
         finance = {"状态": "可用", "指标": {"营业收入": "100 CNY（累计）"},
                    "报告期": "2026-09-30", "披露日期": "2026-10-28", "历史财务": {
