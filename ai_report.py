@@ -156,8 +156,20 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
         parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(query_code)+' 查询，核对报告期和披露日期）</p>')
         evidence = (disclosures or {}).get((market, code))
         if evidence:
-            parts.append('<section><b>近期官方公告</b><br><small>' + esc(evidence["来源"]) +
-                         ' · ' + esc(evidence["查询期间"]) + ' · ' + esc(evidence["状态"]) + '</small>')
+            report = evidence.get("对应报告期财报")
+            if report:
+                parts.append('<section><b>对应报告期的财报</b><br><small>' +
+                             esc(report["报告期"]) + ' · ' + esc(report["状态"]) +
+                             ((' · PDF：' + esc(report["正文状态"]))
+                              if report.get("正文状态") else '') + '</small>')
+                if report.get("链接"):
+                    parts.append('<div><a href="' + esc(report["链接"]) +
+                                 '" rel="noopener noreferrer" target="_blank">' +
+                                 esc(report.get("标题", "打开官方财报 PDF")) + '</a></div>')
+                parts.append('</section>')
+            parts.append('<section><b>近期官方公告及证据摘录</b><br><small>' + esc(evidence["来源"]) +
+                         ' · 近期索引 ' + esc(evidence["查询期间"]) +
+                         ' · ' + esc(evidence["状态"]) + '</small>')
             for notice in evidence["公告"]:
                 parts.append('<div>' + esc(notice["日期"]) + '　<a href="' + esc(notice["链接"]) +
                              '" rel="noopener noreferrer" target="_blank">' + esc(notice["标题"]) + '</a></div>')
@@ -165,8 +177,12 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
                 for passage in notice.get("正文摘录", []):
                     label = f'{notice["编号"]} p{passage["页"]}'
                     url = notice["链接"] + "#page=" + str(passage["页"])
-                    parts.append('<details><summary>' + esc(label) + ' · 查看正文摘录</summary><blockquote>'
-                                 + esc(passage["摘录"]) + '</blockquote><a href="' + esc(url)
+                    context = ('表头：' + str(passage.get("表头", "未定位")) +
+                               '\\n单位：' + str(passage.get("单位", "未定位")) +
+                               '\\n期间上下文：' + str(passage.get("期间上下文", "未定位")))
+                    parts.append('<details><summary>' + esc(label) + ' · 查看正文摘录及表格口径</summary><blockquote>'
+                                 + esc(context.replace('\\n', '\n') + '\n' + passage["摘录"]) +
+                                 '</blockquote><a href="' + esc(url)
                                  + '">打开官方 PDF 对应页</a></details>')
             parts.append('</section>')
         parts.append(finance_html(finance))
@@ -211,8 +227,19 @@ def main():
     disclosures = {}
     for market, s, finance in snapshots:
         code = str(s['代码'])
-        evidence = fetch_disclosures(market, code, data['updated'][:10])
+        # An issuer's latest news is not necessarily the financial statement
+        # corresponding to the finance snapshot's period.
+        statement_period = finance.get("报告期") if finance.get("状态") in ("可用", "部分可用") else None
+        evidence = fetch_disclosures(market, code, data['updated'][:10],
+                                     report_period=statement_period)
         read_filings(evidence["公告"])
+        report_match = evidence.get("对应报告期财报")
+        if report_match and report_match.get("链接"):
+            for notice in evidence["公告"]:
+                if notice.get("报告期匹配") == statement_period:
+                    report_match["正文状态"] = notice.get("正文状态", "未读取")
+                    report_match["正文摘录页数"] = len(notice.get("正文摘录", []))
+                    break
         disclosures[market, code] = evidence
         print(f"公告查询 {market} {code}：{evidence['状态']}，{len(evidence['公告'])} 条", flush=True)
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
@@ -222,7 +249,9 @@ def main():
                   "用150至260字写两至三个独立的中文短段，首句说清入选的行情依据，然后写有证据的经营变化或风险。"
                   "不用标题或Markdown，不重复数据表。只有具体、且确实影响判断的未知项才点明，不设固定待核实段。"
                   "把行情评分与财务表现对照。只从正文摘录提取公告事实；每条公告事实紧跟对应引用，格式如[D1 p3]。"
-                  "区分披露日与报告期，保留币种、单位、比较基期；缺少表头或单位则勿援引数值。涉及收入、"
+                  "优先核对公告中的对应报告期财报，其标题匹配不等于PDF正文已核实。区分公告披露日与财务报告截止日。"
+                  "仅在正文摘录明确定位正确的期间、表格列名与币种金额单位时，才可转述该表数值；单位缺失时禁止推断元、千元、百万元或币种。"
+                  "多个期间或不同单位的数据不得直接比较；不能把去年同期、季度数与年度累计数混为一谈。涉及收入、"
                   "重大事项或风险时说明依据。管理层明确解释的原因写为公司披露，自己的推断标为分析判断。"
                   "遇到口径冲突并列说明；只有标题或正文读取失败时明确证据缺口，不能推断内容或股价驱动。"
                   "必须明确：评分是程序的相对排名分数，不代表收益概率或预测。禁止将估值分当成市盈率。"
