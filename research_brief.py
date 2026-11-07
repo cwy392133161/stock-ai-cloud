@@ -7,6 +7,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from peer_valuation import valuation_context
 from research_quality import evidence_quality
+from research_differentiation import focal_question
 
 PERCENT = re.compile(
     r"^([+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)"
@@ -180,6 +181,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if quality["缺口"]:
         coverage.append("待补证：" + "；".join(quality["缺口"]))
 
+    focus = focal_question(stock, finance, evidence, peer_finance)
     # Distinguish hypotheses from forecasts: choose evidence-specific
     # scenarios instead of copying the same three generic paragraphs.
     if revenue_yoy is None:
@@ -222,6 +224,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         "多期财务对照": historical,
         "估值与同业横截面": relative,
         "研究证据质量": quality,
+        "聚焦问题": focus,
         "同业财务分析": peer_finance,
         "条件情景（非价格预测）": scenarios,
     }
