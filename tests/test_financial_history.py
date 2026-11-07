@@ -1,10 +1,11 @@
 """Financial history must be as-of and same-fiscal-period comparable."""
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
 from financial_history import assemble_history
-from finance import dated_rows
+from finance import cashflow, dated_rows
 
 
 def a_record(year, month, revenue, *, notice=None):
@@ -48,6 +49,32 @@ class FinancialHistoryTests(unittest.TestCase):
                            pd.Timestamp("2026-11-06"))
         history = assemble_history(dated, dated.iloc[0], "A股")
         self.assertIn("无唯一", history["状态"])
+
+    def test_one_cashflow_request_yields_asof_history_without_future(self):
+        rows = pd.DataFrame([
+            {"SECUCODE": "000690.SZ", "REPORT_DATE": "2026-09-30",
+             "NOTICE_DATE": "2026-10-29", "CURRENCY": "人民币",
+             "NETCASH_OPERATE": 500},
+            {"SECUCODE": "000690.SZ", "REPORT_DATE": "2025-09-30",
+             "NOTICE_DATE": "2025-10-25", "CURRENCY": "人民币",
+             "NETCASH_OPERATE": -200},
+            {"SECUCODE": "000690.SZ", "REPORT_DATE": "2024-09-30",
+             "NOTICE_DATE": "2024-10-25", "CURRENCY": "人民币",
+             "NETCASH_OPERATE": None},
+            {"SECUCODE": "000690.SZ", "REPORT_DATE": "2023-09-30",
+             "NOTICE_DATE": "2026-11-07", "CURRENCY": "人民币",
+             "NETCASH_OPERATE": 300},
+        ])
+        current = pd.Series({"_period": pd.Timestamp("2026-09-30"),
+                             "CURRENCY": "人民币"})
+        with patch("finance.ak.stock_cash_flow_sheet_by_report_em",
+                   return_value=rows) as api:
+            amount, history = cashflow(
+                False, "000690", "000690.SZ", current, pd.Timestamp("2026-11-06")
+            )
+        api.assert_called_once_with(symbol="SZ000690")
+        self.assertEqual(amount, 500)
+        self.assertEqual(history, {"2026-09-30": "500", "2025-09-30": "-200"})
 
     def test_hk_only_ratios_with_matching_actual_start_and_end(self):
         records = []
