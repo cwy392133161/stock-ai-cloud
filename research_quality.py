@@ -41,6 +41,14 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
         published = finance.get("披露日期")
         if published and published != "接口未提供":
             not_future = not_future and date.fromisoformat(str(published)[:10]) <= snapshot
+        else:
+            # The exact latest financial period being released before the
+            # snapshot must be supported by an independent official index.
+            report = evidence.get("对应报告期财报") or {}
+            if report.get("报告期") != current_period or not report.get("公告日期"):
+                not_future = False
+            else:
+                not_future = not_future and date.fromisoformat(str(report["公告日期"])[:10]) <= snapshot
         if any(date.fromisoformat(str(n["日期"])[:10]) > snapshot
                for n in evidence.get("公告", [])):
             not_future = False
@@ -64,7 +72,8 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
     if criteria["当前财务指标"] and criteria["至少2个同报告季跨年样本"]:
         grade = "纵向财务研究"
     if (criteria["当前财务指标"] and criteria["至少3个同报告季跨年样本"]
-        and criteria["同报告期官方PDF有可读摘录"] and valuation_good):
+        and criteria["同报告期官方PDF有可读摘录"]
+        and criteria["同报告期官方PDF表头/单位/期间齐备"] and valuation_good):
         grade = "扩展证据研究"
     # No grade claims 'professional' merely for meeting numeric coverage.
     missing = [name for name, ok in criteria.items() if not ok]
