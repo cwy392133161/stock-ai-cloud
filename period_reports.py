@@ -83,7 +83,7 @@ def period_title_score(title, period, market):
     # '半年度报告' and '半年报' contain the annual-report substrings;
     # an interim statement must never be classified as both kinds.
     annual = bool(re.search(r"(?<!半)年度报告|(?<!半)年度報告|(?<!半)年报|(?<!半)年報|"
-                            r"全年|\\bannual\\b|full.year|final results|"
+                            r"全年|(?<![a-z])annual(?![a-z])|full.year|final results|"
                             r"(?<!半)年度業績|(?<!半)年度业绩", text))
     kinds = int(q1) + int(q3) + int(interim) + int(annual)
     if kinds > 1:
