@@ -38,7 +38,7 @@ class ValuationTests(unittest.TestCase):
 
     def test_quality_never_claims_professional_on_sparse_evidence(self):
         finance = {"状态": "可用", "指标": {"营业收入": "100 CNY（累计）"},
-                   "报告期": "2026-09-30", "历史财务": {
+                   "报告期": "2026-09-30", "披露日期": "2026-10-28", "历史财务": {
                        "可比同季度年度数": 4,
                    }}
         q = evidence_quality(finance, {}, valuation_context({}),
