@@ -11,7 +11,7 @@ from finance import fetch_financial
 from finance_facts import financial_comparison
 from research_brief import build_research_brief
 from evidence_guard import SECTIONS, decode_report, verified_quotes, verified_claims
-from peer_fundamentals import analyze_peer_financials, MAX_CALLS
+from peer_fundamentals import analyze_peer_financials
 from research_differentiation import duplicate_reports
 from hk_products import stock_directory
 
@@ -445,7 +445,7 @@ def main():
     disclosures = {}
     peer_data = {}
     cache = {}
-    budget = {"calls": 0, "max_calls": MAX_CALLS}
+    budget = {"calls": 0}  # Observability counter, no imposed API request ceiling
     for market, s, finance in snapshots:
         code = str(s['代码'])
         # An issuer's latest news is not necessarily the financial statement
@@ -472,7 +472,7 @@ def main():
         )
         peer_data[market, code] = peer_context
         print(f"同行财务 {market} {code}：{peer_context['状态']}，"
-              f"本轮额外财务请求 {budget['calls']}/{budget['max_calls']}", flush=True)
+              f"本轮累计额外财务请求 {budget['calls']} 次（不设项目内调用配额）", flush=True)
         brief = build_research_brief(s, finance, evidence, data.get('updated'), peer_context)
         comparison = financial_comparison(finance)
         prompt = (
