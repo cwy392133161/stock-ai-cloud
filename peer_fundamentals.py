@@ -168,8 +168,9 @@ def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
         median = (observations[(n - 1) // 2] + observations[n // 2]) / 2
         delta = own - median
         values[label] = {
-            "本公司": str(own), "同行中位数": str(median),
-            "差异百分点": str(delta),
+            "本公司": format(own.normalize(), "f"),
+            "同行中位数": format(median.normalize(), "f"),
+            "差异百分点": format(delta.normalize(), "f"),
             "同行有效样本数": n,
             "解释限制": "同报告期百分比指标的分布位置，不等于投资优劣或因果比较",
         }
