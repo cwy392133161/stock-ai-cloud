@@ -10,7 +10,8 @@ from filing_text import read_filings
 from finance import fetch_financial
 from finance_facts import financial_comparison
 from research_brief import build_research_brief
-from evidence_guard import SECTIONS, decode_report, verified_quotes
+from evidence_guard import SECTIONS, decode_report, verified_quotes, verified_claims
+from peer_fundamentals import analyze_peer_financials, MAX_CALLS
 from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -232,17 +233,19 @@ def assess_model_research(content, brief, notices):
         return result
     sections = {key: review_narrative(parsed["sections"][key], {}) for key in SECTIONS}
     quotes = verified_quotes(parsed["source_quotes"], notices)
+    claims = verified_claims(parsed.get("source_claims"), notices)
     original = sum(len(parsed["sections"][key].strip()) for key in SECTIONS)
     kept = sum(len(sections[key]) for key in SECTIONS)
     result.update({"可用字数": kept, "引用候选数": len(parsed["source_quotes"]),
                    "已核对原文短引数": len(quotes),
+                   "逐字证据主张数": len(claims),
                    "各章节保留字数": {key: len(sections[key].strip()) for key in SECTIONS}})
     if "行情快照日期已确认" not in quality["通过项"] or "财务与公告未晚于行情快照" not in quality["通过项"]:
         result["原因"].append("行情与资料的真实截止日期未通过检查")
     if "当前财务指标" not in quality["通过项"]:
         result["原因"].append("没有已确认同快照期的可用财务指标")
-    if not quotes:
-        result["原因"].append("没有逐字匹配官方PDF页码的原文证据")
+    if not claims:
+        result["原因"].append("缺少同时匹配官方PDF页码和原文措辞的直接证据主张")
     if not all(len(sections[key].strip()) >= 24 for key in SECTIONS):
         result["原因"].append("四个研究章节未通过有效内容长度检查")
     if kept < 160 or (original and kept / original < 0.65):
@@ -250,7 +253,8 @@ def assess_model_research(content, brief, notices):
     if result["原因"]:
         return result
     result.update({"状态": "解释性研究已通过基础发布门槛",
-                   "章节": sections, "原文短引": quotes})
+                   "章节": sections, "原文短引": quotes,
+                   "直接证据主张": claims})
     return result
 
 
@@ -263,15 +267,17 @@ def render_assessed_research(assessment):
     for label in SECTIONS:
         parts.append("<p><b>" + esc(label) + "</b><br>" +
                      esc(assessment["章节"][label]) + "</p>")
-    parts.append('<details><summary>展开逐字核验的官方原文短引（' +
-                 str(len(assessment["原文短引"])) + '条）</summary>')
-    for fact in assessment["原文短引"]:
-        parts.append('<blockquote>' + esc(fact["原文短引"]) +
+    parts.append('<details><summary>展开原文主张逐字核验（' +
+                 str(len(assessment["直接证据主张"])) + '条）</summary>')
+    for fact in assessment["直接证据主张"]:
+        parts.append('<blockquote><b>' + esc(fact["主张类别"]) +
+                     '（逐字摘录）：</b>' + esc(fact["主张原文"]) +
+                     '<p><small>对应PDF原句：' + esc(fact["原文短引"]) + '</small></p>' +
                      ' <a rel="noopener noreferrer" target="_blank" href="' +
                      esc(fact["官方PDF"]) + '">' + esc(fact["引用"]) +
                      '</a><small> · 单位：' + esc(fact["单位"]) +
                      '；期间：' + esc(fact["期间"]) + '</small></blockquote>')
-    parts.append('<small>逐字引用只证明对应摘录存在，不自动证明AI经营解释正确。</small></details></section>')
+    parts.append('<small>仅允许与PDF逐字一致的事实主张；模型其他段落属于待验证的研究假设，不自动认证经营因果或未来表现。</small></details></section>')
     return "".join(parts)
 
 
@@ -302,14 +308,15 @@ def render_research_brief(brief):
     return "\n".join(parts)
 
 
-def render_report(data, output, updated, archived_codes=(), disclosures=None):
+def render_report(data, output, updated, archived_codes=(), disclosures=None, peer_data=None):
     summaries = [finance_summary(market, [f for m, _, _, f in output if m == market])[0]
                  for market in ("A股", "港股")]
     # Compute research gates before HTML so page-level status is unambiguous.
     verified = {}
     for market, stock, content, finance in output:
         item = (disclosures or {}).get((market, str(stock.get("代码", "")))) or {}
-        brief = build_research_brief(stock, finance, item, data.get("updated"))
+        peers = (peer_data or {}).get((market, str(stock.get("代码", ""))))
+        brief = build_research_brief(stock, finance, item, data.get("updated"), peers)
         assessment = assess_model_research(content, brief, item.get("公告", []))
         verified[(market, str(stock.get("代码", "")))] = (brief, assessment)
     approved = sum(result["状态"] == "解释性研究已通过基础发布门槛"
@@ -410,6 +417,9 @@ def main():
         prefix = "::warning::" if all_missing and os.getenv("GITHUB_ACTIONS") == "true" else ""
         print(prefix + summary, flush=True)
     disclosures = {}
+    peer_data = {}
+    cache = {}
+    budget = {"calls": 0, "max_calls": MAX_CALLS}
     for market, s, finance in snapshots:
         code = str(s['代码'])
         # An issuer's latest news is not necessarily the financial statement
@@ -428,16 +438,29 @@ def main():
         disclosures[market, code] = evidence
         print(f"公告查询 {market} {code}：{evidence['状态']}，{len(evidence['公告'])} 条", flush=True)
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示","市盈率-动态","市净率","行业","行业估值参考","60日涨跌幅","年初至今涨跌幅")}
-        brief = build_research_brief(s, finance, evidence, data.get('updated'))
+        peer_context = (
+            analyze_peer_financials(
+                s, finance, (data.get("a_peer_pool") or {}).get(re.sub(r"^(?:sh|sz|bj)", "", code.lower()), []),
+                data["updated"], cache, budget
+            ) if market == "A股" else {"状态": "港股尚无可核实的同行行业财务样本"}
+        )
+        peer_data[market, code] = peer_context
+        print(f"同行财务 {market} {code}：{peer_context['状态']}，"
+              f"本轮额外财务请求 {budget['calls']}/{budget['max_calls']}", flush=True)
+        brief = build_research_brief(s, finance, evidence, data.get('updated'), peer_context)
         comparison = financial_comparison(finance)
         prompt = (
             "你是证券基本面研究员。只能使用以下数据，输出严格JSON对象，不要Markdown围栏，不要多余文字。"
             "JSON结构固定："
             '{"sections":{"入选逻辑":"约90字","经营和估值":"约120字","反面证据":"约100字","跟踪条件":"约100字"},'
-            '"source_quotes":[{"citation":"D1 p3","quote":"从对应页摘录逐字复制8到180字连续原文"}]}。'
+            '"source_quotes":[{"citation":"D1 p3","quote":"从对应页摘录逐字复制8到180字连续原文"}],'
+            '"source_claims":[{"citation":"D1 p3","type":"直接披露","quote":"官方PDF摘录连续8至180字原句","claim":"必须从quote逐字复制一个8至150字完整事实子句"}]}。'
             "四章节只作谨慎的分析解释、反事实挑战和下一期可核验条件，"
             "不得独立陈述任何未经证实的经营事件，也不要引用公司公告标题推断其正文。"
-            "事实只允许在source_quotes中提供与输入PDF摘录完全一致的短引；"
+            "事实须采用source_claims，claim必须是quote中的逐字连续子句，"
+            "quote还必须逐字出现在指定PDF页码摘录；经营原因类别只能在原句存在明确因果表述时使用。"
+            "不要将AI改写或逻辑推断伪装成公司原文披露。"
+            "事实也可附source_quotes作为摘录对照；"
             "citation必须指向真实D编号和该摘录页码，没找到支持就返回空source_quotes列表，"
             "不得编造原文短引。"
             "金额、百分比、盈利正负、现金流比较由程序单独展示，"
@@ -490,7 +513,9 @@ def main():
         output.append((market,s,content[:10000],finance))
     if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
-    (DOCS/"ai.html").write_text(render_report(data, output, updated, disclosures=disclosures), encoding="utf-8")
+    (DOCS/"ai.html").write_text(
+        render_report(data, output, updated, disclosures=disclosures, peer_data=peer_data),
+        encoding="utf-8")
     print("AI 报告生成完成，股票数：",len(output))
 if __name__ == "__main__":
     main()
