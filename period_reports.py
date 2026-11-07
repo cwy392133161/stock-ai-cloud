@@ -20,7 +20,7 @@ DAYS = {**{name: value for name, value in MONTHS.items()},
 REPORT_WORDS = re.compile(
     r"季报|季度报告|季度報告|半年|中期|年报|年報|年度报告|年度報告|"
     r"业绩|業績|财务报告|財務報告|results|report|financial statements", re.I)
-SUMMARY_ONLY = re.compile(r"摘要|summary|摘要版|更正公告|更正說明|提示性公告", re.I)
+SUMMARY_ONLY = re.compile(r"摘要|summary|摘要版|更正公告|更正說明|提示性公告|业绩预告|業績預告|盈利預告|盈利预告|盈利預警|盈利警告|profit warning|forecast", re.I)
 EN_MONTHS = {name: i for i, name in enumerate(
     ("january", "february", "march", "april", "may", "june",
      "july", "august", "september", "october", "november", "december"), 1)}
