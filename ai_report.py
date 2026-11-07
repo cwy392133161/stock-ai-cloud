@@ -90,6 +90,10 @@ UNVERIFIED_QUANTITY = re.compile(
     r"人民币|人民幣|美元|倍|HKD|CNY|USD)(?![a-z])",
     re.I,
 )
+CHINESE_QUANTITY = re.compile(
+    r"[零〇一二两兩三四五六七八九十百千万萬亿億]+"
+    r"(?:元|万元|萬元|亿元|億元|港元|成|倍|个?百分点|個?百分點|股)"
+)
 OVERCONFIDENT = re.compile(
     r"稳赚|必涨|一定上涨|保证收益|确定上涨|涨停预期|"
     r"建议买入|建议卖出|目标价|上行空间|估值低估|显著低估|"
@@ -134,7 +138,8 @@ def review_narrative(content, links=None):
                 and not re.search(r"已经|已实现|确保|必然|将会", plain)
             )
             blocked = (bad_reference or event_without_source or
-                       UNVERIFIED_QUANTITY.search(plain) or OVERCONFIDENT.search(plain) or
+                       UNVERIFIED_QUANTITY.search(plain) or CHINESE_QUANTITY.search(plain) or
+                       OVERCONFIDENT.search(plain) or
                        DEPENDENT_CLAIM.search(plain) or
                        (removed and DEPENDENT_FOLLOWUP.search(plain)) or
                        (RESERVED_TOPICS.search(plain) and not (cited_cause or safe_monitoring)))
