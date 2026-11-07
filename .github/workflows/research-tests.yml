@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'ai_report.py'
+      - 'publish_guard.py'
+      - 'evidence_guard.py'
       - 'finance.py'
       - 'financial_history.py'
       - 'research_brief.py'
