@@ -56,18 +56,25 @@ jobs:
           print("本次报告使用已发布行情快照:", snapshot["updated"])
           PY
 
-      - name: 运行选股
+      - name: 判断北京时间是否为交易工作日
+        id: trading_day
         if: ${{ !inputs.report_only }}
+        run: python market_schedule.py
+
+      - name: 运行选股
+        id: screening
+        if: ${{ !inputs.report_only && steps.trading_day.outputs.trading_weekday == 'true' }}
+        continue-on-error: true
         run: python picker.py
 
       - name: 安装公告 PDF 文本读取工具
         continue-on-error: true
-        if: ${{ vars.AI_ENABLED == 'true' }}
+        if: ${{ vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
         run: command -v pdftotext || (sudo apt-get update -qq && sudo apt-get install -y poppler-utils)
 
       - name: 生成可选 AI 深度分析
         id: deep_research
-        if: ${{ vars.AI_ENABLED == 'true' }}
+        if: ${{ vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
         continue-on-error: ${{ !inputs.report_only }}
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}
@@ -84,6 +91,9 @@ jobs:
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}
           AI_JOB_STATUS: ${{ steps.deep_research.outcome }}
+          SCREENING_OUTCOME: ${{ steps.screening.outcome }}
+          TRADING_WEEKDAY: ${{ steps.trading_day.outputs.trading_weekday }}
+          REPORT_ONLY: ${{ inputs.report_only }}
         run: python publish_guard.py
 
       - name: 提交结果（仅当页面有变化）
@@ -94,3 +104,9 @@ jobs:
           if [ -f docs/ai.html ]; then git add docs/ai.html; fi
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
+
+      - name: 标记真实交易日行情故障
+        if: ${{ !inputs.report_only && steps.trading_day.outputs.trading_weekday == 'true' && steps.screening.outcome == 'failure' }}
+        run: |
+          echo "::error::行情源异常：本次排名没有刷新。已发布旧快照警告；请勿将旧行情当作本期新结果。"
+          exit 1
