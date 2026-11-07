@@ -53,6 +53,29 @@ class DisclosurePagingTests(unittest.TestCase):
 
     @patch("disclosures.directory", return_value={"00585": "test-stock"})
     @patch("disclosures.read_json")
+    def test_hk_splits_dense_date_window_to_recover_all_titles(self, api, _):
+        dense = [
+            {"STOCK_CODE": "00585", "DATE_TIME": "05/11/2026 10:25",
+             "TITLE": "待拆分", "FILE_LINK": f"/file{i}.pdf"}
+            for i in range(100)
+        ]
+        first = {"STOCK_CODE": "00585", "DATE_TIME": "06/10/2026 10:25",
+                 "TITLE": "左半区", "FILE_LINK": "/first.pdf"}
+        second = {"STOCK_CODE": "00585", "DATE_TIME": "05/11/2026 10:25",
+                  "TITLE": "右半区", "FILE_LINK": "/second.pdf"}
+        api.side_effect = [{"result": dense}, {"result": [first]},
+                           {"result": [second]}]
+        result = list(disclosures.hk_rows("00585", date(2026, 10, 1),
+                                         date(2026, 11, 6)))
+        self.assertEqual({x[2] for x in result},
+                         {"/first.pdf", "/second.pdf"})
+        self.assertEqual(api.call_count, 3)
+        queries = [call.kwargs["query"] for call in api.call_args_list]
+        self.assertNotEqual(queries[0]["fromDate"], queries[2]["fromDate"])
+        self.assertLess(int(queries[1]["toDate"]), int(queries[2]["fromDate"]))
+
+    @patch("disclosures.directory", return_value={"00585": "test-stock"})
+    @patch("disclosures.read_json")
     def test_hk_small_result_remains_accessible(self, api, _):
         api.return_value = {"result": [
             {"STOCK_CODE": "00585", "DATE_TIME": "05/11/2026 10:25",
