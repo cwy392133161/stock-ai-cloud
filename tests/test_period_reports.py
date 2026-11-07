@@ -47,7 +47,7 @@ class PeriodReportTests(unittest.TestCase):
             [(date(2026, 8, 4), "2026年半年度报告", "/financial.pdf")],
         ]
         result = fetch_disclosures("A股", "000690", "2026-11-06", report_period="2026-06-30")
-        self.assertEqual(result["对应报告期财报"]["状态"], "标题与报告期匹配，PDF正文待核验")
+        self.assertEqual(result["对应报告期财报"]["状态"], "完整财报标题与报告期匹配，PDF正文待核验")
         self.assertEqual(result["公告"][0]["报告期匹配"], "2026-06-30")
         self.assertTrue(result["公告"][0]["链接"].endswith("/financial.pdf"))
         self.assertEqual(len(result["公告"]), 2)
