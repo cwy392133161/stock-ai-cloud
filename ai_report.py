@@ -124,11 +124,20 @@ def review_narrative(content, links=None):
             # previously match the finance-specific blocklist.
             bad_reference = bool(references) and not all(ref in links for ref in references)
             event_without_source = bool(EVENT_ASSERTION.search(plain)) and not references
+            # Monitoring questions about next quarter's profit or cash flow
+            # are useful and do not state a new financial fact. Preserve them,
+            # but never whitelist amounts, direction claims or certainty.
+            safe_monitoring = (
+                re.match(r"^(?:跟踪条件[：:]|验证条件[：:]|后续|下期|下一期|需|应|观察)", plain)
+                and re.search(r"核对|核验|验证|检验|观察|跟踪|关注|检查|是否|补齐", plain)
+                and not NUMERIC_OR_COMPARISON.search(plain)
+                and not re.search(r"已经|已实现|确保|必然|将会", plain)
+            )
             blocked = (bad_reference or event_without_source or
                        UNVERIFIED_QUANTITY.search(plain) or OVERCONFIDENT.search(plain) or
                        DEPENDENT_CLAIM.search(plain) or
                        (removed and DEPENDENT_FOLLOWUP.search(plain)) or
-                       (RESERVED_TOPICS.search(plain) and not cited_cause))
+                       (RESERVED_TOPICS.search(plain) and not (cited_cause or safe_monitoring)))
             if blocked:
                 removed = True
                 continue
