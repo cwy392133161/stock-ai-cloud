@@ -17,6 +17,8 @@ on:
       - 'period_reports.py'
       - 'disclosures.py'
       - 'picker.py'
+      - 'market_schedule.py'
+      - '.github/workflows/daily.yml'
       - 'tests/**'
       - 'test_*.py'
       - '.github/workflows/research-tests.yml'
