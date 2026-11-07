@@ -1,12 +1,14 @@
 # Optional research layer for the existing ranked stocks.
 import os, json, html, pathlib, requests
 import re
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from disclosures import fetch_disclosures
 from filing_text import read_filings
 from finance import fetch_financial
+from finance_facts import financial_comparison
 from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -45,9 +47,75 @@ def finance_summary(market, reports):
     return message, bool(applicable and not covered)
 
 
+# Numeric profit/cash-flow claims are supplied by the deterministic snapshot.
+# Cited, non-numeric company explanations may remain in the AI narrative.
+RESERVED_TOPICS = re.compile(
+    r"现金流|現金流|现金净|現金淨|净现金|淨現金|现流|現流|净流[入出]|淨流[入出]|"
+    r"经营性?净?流[入出]|經營性?淨?流[入出]|利润|利潤|净利|淨利|归母|歸母|"
+    r"盈利|获利|獲利|亏损|虧損|盈亏|盈虧|溢利|虧蝕|净赚|淨賺|扭亏|扭虧|转亏|轉虧|"
+    r"cash\s*flow|cash\s+(?:inflow|outflow|from\s+operat)|\b(?:OCF|CFO|profit|loss|earnings)\b",
+    re.IGNORECASE,
+)
+
+
+CITATION = re.compile(r"\[(D[0-9]+) p([0-9]+)\]")
+CAUSAL_CLAIM = re.compile(
+    r"^公司(?:披露|解释|解釋|说明|說明|表示)|^公告(?:披露|解释|解釋|说明|說明|表示)"
+)
+NUMERIC_OR_COMPARISON = re.compile(
+    r"[0-9%‰]|[零〇一二两兩三四五六七八九十百千万萬亿億兆]+(?:元|倍|成|个百分点|個百分點)|"
+    r"高于|高於|低于|低於|大于|大於|小于|小於|超[过過]|少于|多于|不足|"
+    r"相反|相同|一致|不同|背离|背離|由[正负負]转[正负負]|由[正負]轉[正負]|[远遠明显顯著偏]+[高低大小]|[正负負]值|[正负負]数|[正负負]增长|"
+    r"为[正负負零]|為[正負零]|盈利|亏损|虧損|获利|獲利|扭亏|扭虧|转亏|轉虧|"
+    r"净流[入出]|淨流[入出]|现金流[入出]|現金流[入出]|"
+    r"\b(?:positive|negative|exceeds|below|above|greater|less)\b",
+    re.IGNORECASE,
+)
+DEPENDENT_CLAIM = re.compile(r"前者|后者|後者|二者|两者|兩者|方向相[同反]|方向[一不]致")
+DEPENDENT_FOLLOWUP = re.compile(r"^(?:请|需|仍需|有待|因此|所以|故|这|這|其)")
+
+
+def review_narrative(content, links=None):
+    """Keep self-contained sentences and tightly limited cited explanations."""
+    links = links or {}
+    kept = []
+    removed = False
+    for line in content.splitlines():
+        paragraph = line.strip()
+        if not paragraph or paragraph.startswith("#") or re.fullmatch(r"\*\*[^*]+\*\*[：:]?", paragraph):
+            continue
+        sentences = re.findall(r"[^。！？!?]+[。！？!?]?", paragraph)
+        accepted = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            text = unicodedata.normalize("NFKC", sentence)
+            references = CITATION.findall(text)
+            plain = CITATION.sub("", text).strip()
+            cited_cause = (
+                references and all(ref in links for ref in references)
+                and CAUSAL_CLAIM.search(plain)
+                and re.search(r"因|系|由于|由於|源于|源於|影响|影響|导致|導致|拖累|受", plain)
+                and not NUMERIC_OR_COMPARISON.search(plain)
+            )
+            blocked = DEPENDENT_CLAIM.search(plain) or (
+                removed and DEPENDENT_FOLLOWUP.search(plain)
+            ) or (RESERVED_TOPICS.search(plain) and not cited_cause)
+            if blocked:
+                removed = True
+                continue
+            accepted.append(sentence)
+            removed = False
+        if accepted:
+            kept.append("".join(accepted))
+    return "\n\n".join(kept)
+
+
 def cited_narrative(content, notices):
     links = {(n["编号"], str(p["页"])): n["链接"] + "#page=" + str(p["页"])
              for n in notices for p in n.get("正文摘录", [])}
+    content = review_narrative(content, links)
+    if not content:
+        return "<p>本次 AI 点评未通过发布校验，请参阅本页的原始指标和公告摘录。</p>"
     found = False
 
     def replace(match):
@@ -102,6 +170,9 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
                                  + '">打开官方 PDF 对应页</a></details>')
             parts.append('</section>')
         parts.append(finance_html(finance))
+        comparison = financial_comparison(finance)
+        if comparison:
+            parts.append('<p><b>同口径财务核对</b><br>' + esc(comparison) + '</p>')
         narrative = cited_narrative(content, evidence['公告'] if evidence else [])
         if (market, code) in archived_codes:
             narrative = ('<details><summary>原 AI 分析（生成后已更新财务数据）</summary>'
@@ -146,15 +217,17 @@ def main():
         print(f"公告查询 {market} {code}：{evidence['状态']}，{len(evidence['公告'])} 条", flush=True)
         payload = {k:s.get(k) for k in ("代码","名称","最新价","涨跌幅","评分","趋势分","活跃分","估值分","换手率","入选原因","风险提示")}
         prompt = ("你只能使用下列快照数据，不得补充未提供的财务数字、行业事实、新闻、公告、财报或市盈率。提供的财务指标仅来自第三方数据接口，必须标明报告期，不能当作最新实时数据；缺失则明确未知。"
-                  "标明公司财务不适用的产品只分析产品行情，勿讨论公司财务。只采用标为可用的指标并保留币种和期间，勿解读异常 ROE 为经营改善。若财务指标已可用，必须引用对应报告期和至少一个真实财务数值，不得沿用旧结论或声称财务接口无效。归母净利润为负必须明确写亏损，即使同比变化为正也不得称已盈利；利润与经营现金流方向相反、现金流金额明显大于营收时必须提醒核查原因，不得臆测原因。"
-                  "写一份约300至450字的中文研究，分为入选依据、公告与经营表现、主要风险、待核实事项。"
+                  "标明公司财务不适用的产品只分析产品行情。财务可用时可引用对应报告期的营收、杠杆或ROE，保留币种和期间；区分年化与报告期，勿将异常ROE解读为经营改善。"
+                  "程序金额核对字段由程序生成，页面单列展示，请勿改写其数值或结论。AI正文不要重复其金额、盈亏正负或与营收的大小方向比较。可以写有有效页码引用的公司经营因果解释，此类句子须以公司披露或公告说明开头，勿夹带数字、金额比较或盈亏正负结论。"
+                  "用150至260字写两至三个独立的中文短段，首句说清入选的行情依据，然后写有证据的经营变化或风险。"
+                  "不用标题或Markdown，不重复数据表。只有具体、且确实影响判断的未知项才点明，不设固定待核实段。"
                   "把行情评分与财务表现对照。只从正文摘录提取公告事实；每条公告事实紧跟对应引用，格式如[D1 p3]。"
-                  "区分披露日与报告期，保留币种、单位、比较基期；缺少表头或单位则勿援引数值。涉及收入、利润、经营现金流、"
+                  "区分披露日与报告期，保留币种、单位、比较基期；缺少表头或单位则勿援引数值。涉及收入、"
                   "重大事项或风险时说明依据。管理层明确解释的原因写为公司披露，自己的推断标为分析判断。"
                   "遇到口径冲突并列说明；只有标题或正文读取失败时明确证据缺口，不能推断内容或股价驱动。"
                   "必须明确：评分是程序的相对排名分数，不代表收益概率或预测。禁止将估值分当成市盈率。"
                   "明确不预测确定涨跌、不给出买卖指令。数据缺失时说未知。"
-                  "股票数据：" + json.dumps({"市场":market,**payload,"财务指标":finance,"公告索引":evidence},ensure_ascii=False))
+                  "股票数据：" + json.dumps({"市场":market,**payload,"财务指标":finance,"程序金额核对":financial_comparison(finance),"公告索引":evidence},ensure_ascii=False))
         content = ""
         for attempt in range(2):
             options = {}
