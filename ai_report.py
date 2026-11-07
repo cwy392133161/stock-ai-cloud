@@ -203,7 +203,8 @@ def assess_model_research(content, brief, notices):
     original = sum(len(parsed["sections"][key].strip()) for key in SECTIONS)
     kept = sum(len(sections[key]) for key in SECTIONS)
     result.update({"可用字数": kept, "引用候选数": len(parsed["source_quotes"]),
-                   "已核对原文短引数": len(quotes)})
+                   "已核对原文短引数": len(quotes),
+                   "各章节保留字数": {key: len(sections[key].strip()) for key in SECTIONS}})
     if "行情快照日期已确认" not in quality["通过项"] or "财务与公告未晚于行情快照" not in quality["通过项"]:
         result["原因"].append("行情与资料的真实截止日期未通过检查")
     if "当前财务指标" not in quality["通过项"]:
