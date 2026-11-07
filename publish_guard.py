@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
 
 REPORT_SNAPSHOT = re.compile(r"行情快照[：:]\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})")
-NAV = re.compile(r'<p class="ai-nav">.*?</p>', flags=re.S)
+NAV = re.compile(r'<p class="ai-nav"(?:\s+[^>]*)?>.*?</p>', flags=re.S)
 
 APPROVED = re.compile(r'<meta name="research-approved-count" content="([0-9]+)">')
 TOTAL = re.compile(r'<meta name="research-total-count" content="([0-9]+)">')
