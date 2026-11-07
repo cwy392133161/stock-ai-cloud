@@ -26,16 +26,21 @@ def display_metric(value):
 
 
 def finance_html(finance):
+    """Compact current-period facts; history appears once in research details."""
     lines = []
-    for key, value in finance.items():
-        if isinstance(value, dict):
-            for label, detail in value.items():
-                prefix = "缺失 · " if key == "缺失" else ""
-                text = display_metric(detail) if key == "指标" else detail
-                lines.append(esc(prefix + label) + "：" + esc(text))
-        else:
-            lines.append(esc(key) + "：" + esc(value))
-    return '<small>财务数据<br>' + '<br>'.join(lines) + '</small>'
+    for field in ("来源", "状态", "报告期", "披露日期", "报告币种", "期间", "原币金额来源"):
+        if field in finance and finance[field] is not None:
+            lines.append("<div>" + esc(field) + "：" + esc(finance[field]) + "</div>")
+    for label, value in (finance.get("指标") or {}).items():
+        lines.append("<div>" + esc(label) + "：" + esc(display_metric(value)) + "</div>")
+    missing = finance.get("缺失") or {}
+    if missing:
+        lines.append("<p>缺失或待核验指标：</p>")
+        for label, reason in missing.items():
+            lines.append("<div>" + esc(label) + "：" + esc(reason) + "</div>")
+    return ('<details class="finance"><summary>展开财务原始指标与口径（' +
+            esc(finance.get("报告期", "日期未核实")) + '）</summary><small>' +
+            "".join(lines) + '</small></details>')
 
 
 def finance_summary(market, reports):
@@ -239,7 +244,7 @@ def render_assessed_research(assessment):
 
 def render_research_brief(brief):
     """Make source-backed counter-evidence and verification points visible."""
-    parts = ['<section class="research-brief"><h3>研究证据与反向核对</h3>']
+    parts = ['<details class="research-brief"><summary>展开研究证据与反向核对（程序生成）</summary>']
     for title, field in (
         ("入选依据（快照）", "行情入选依据"),
         ("财务变化（第三方）", "财务变化线索"),
@@ -260,18 +265,31 @@ def render_research_brief(brief):
         parts.append("<p><b>" + esc(title) + "</b></p><ul>" +
                      "".join("<li>" + esc(point) + "</li>"
                              for point in brief[field]) + "</ul>")
-    parts.append("</section>")
+    parts.append("</details>")
     return "\n".join(parts)
 
 
 def render_report(data, output, updated, archived_codes=(), disclosures=None):
     summaries = [finance_summary(market, [f for m, _, _, f in output if m == market])[0]
                  for market in ("A股", "港股")]
+    # Compute research gates before HTML so page-level status is unambiguous.
+    verified = {}
+    for market, stock, content, finance in output:
+        item = (disclosures or {}).get((market, str(stock.get("代码", "")))) or {}
+        brief = build_research_brief(stock, finance, item, data.get("updated"))
+        assessment = assess_model_research(content, brief, item.get("公告", []))
+        verified[(market, str(stock.get("代码", "")))] = (brief, assessment)
+    approved = sum(result["状态"] == "解释性研究已通过基础发布门槛"
+                   for _, result in verified.values())
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
-             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
+             '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .ai-insight{border:1px solid #d8e2ef;padding:12px;border-radius:8px}article .limited{background:#f9f9f9}article details{margin:12px 0}article summary{cursor:pointer;font-weight:600}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
+             '<meta name="research-approved-count" content="' + str(approved) + '"><meta name="research-total-count" content="' + str(len(output)) + '">',
              '<h1>可复核的股票研究档案</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
              '<p>A股前5只、港股前5只，共10只。分层展示行情原始倍数、同报告季多期财务对照、行业截面样本（若可用）、官方PDF页码摘录、相反证据和跟踪条件。来源缺失不会被AI推断补齐；这些资料不能替代完整审计、行业访谈和估值模型。</p>']
+    parts.append('<p><b>基础审核通过的解释性研究：' + str(approved) + '/' +
+                 str(len(output)) +
+                 '只</b>。其余只展示程序数据和官方来源，不以文章篇幅充当研究质量。</p>')
     parts.append('<section><h2>财务数据覆盖</h2><ul>' +
                  ''.join('<li>' + esc(summary) + '</li>' for summary in summaries) + '</ul></section>')
     for market,s,content,finance in output:
@@ -286,6 +304,11 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
         parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
         query_code = re.sub(r"^(?:sh|sz|bj)(?=[0-9]{6}$)", "", code, flags=re.I) if market == "A股" else code
         parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(query_code)+' 查询，核对报告期和披露日期）</p>')
+        brief, assessment = verified[(market, code)]
+        if (market, code) in archived_codes:
+            assessment = {**assessment, "状态": "仅发布可核对事实",
+                          "原因": ["原有研究已归档，不能当作本期分析结论"]}
+        parts.append(render_assessed_research(assessment))
         evidence = (disclosures or {}).get((market, code))
         if evidence:
             report = evidence.get("对应报告期财报")
@@ -299,7 +322,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
                                  '" rel="noopener noreferrer" target="_blank">' +
                                  esc(report.get("标题", "打开官方财报 PDF")) + '</a></div>')
                 parts.append('</section>')
-            parts.append('<section><b>近期官方公告及证据摘录</b><br><small>' + esc(evidence["来源"]) +
+            parts.append('<details class="source-docs"><summary>展开近期官方公告与PDF证据</summary><small>' + esc(evidence["来源"]) +
                          ' · 近期索引 ' + esc(evidence["查询期间"]) +
                          ' · ' + esc(evidence["状态"]) + '</small>')
             for notice in evidence["公告"]:
@@ -316,18 +339,13 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
                                  + esc(context.replace('\\n', '\n') + '\n' + passage["摘录"]) +
                                  '</blockquote><a href="' + esc(url)
                                  + '">打开官方 PDF 对应页</a></details>')
-            parts.append('</section>')
+            parts.append('</details>')
         parts.append(finance_html(finance))
-        parts.append(render_research_brief(build_research_brief(s, finance, evidence, data.get('updated'))))
+        parts.append(render_research_brief(brief))
         comparison = financial_comparison(finance)
         if comparison:
             parts.append('<p><b>同口径财务核对</b><br>' + esc(comparison) + '</p>')
-        narrative = cited_narrative(content, evidence['公告'] if evidence else [])
-        if (market, code) in archived_codes:
-            narrative = ('<details><summary>原 AI 分析（生成后已更新财务数据）</summary>'
-                         + narrative + '</details>')
-        parts.append('<section class="ai-insight"><h3>DeepSeek 深度研判（解释性判断）</h3>' +
-                     narrative + '</section></article>')
+        parts.append('</article>')
     parts.append('</html>')
     return "\n".join(parts)
 
