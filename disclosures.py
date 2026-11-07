@@ -37,33 +37,77 @@ def directory(market):
     return {str(row["c"]).zfill(5): row["i"] for row in rows}
 
 
+MAX_CN_PAGES = 5
+CN_PAGE_SIZE = 30
+HK_ROW_LIMIT = 100
+
+
 def cn_rows(code, start, end):
+    """Bounded pagination; never mislabel a truncated index as exhaustive."""
     org = directory("A股")[code]
     column = "sse" if code.startswith("6") else "bj" if code.startswith(("4", "8", "92")) else "szse"
-    form = dict(pageNum=1, pageSize=30, column=column, tabName="fulltext", plate="",
+    form = dict(pageNum=1, pageSize=CN_PAGE_SIZE, column=column, tabName="fulltext", plate="",
                 stock=f"{code},{org}", searchkey="", secid="", category="", trade="",
                 seDate=f"{start}~{end}", sortName="time", sortType="desc", isHLtitle="true")
-    data = read_json(CN + "/new/hisAnnouncement/query", form=form, referer=CN + "/new/commonUrl/pageOfSearch")
-    rows = data["announcements"]
-    if rows is None and data.get("totalAnnouncement") == 0:
-        return
-    for row in rows:
-        if row["secCode"] == code:
+    seen_urls = set()
+    for page in range(1, MAX_CN_PAGES + 1):
+        form["pageNum"] = page
+        data = read_json(CN + "/new/hisAnnouncement/query", form=form,
+                         referer=CN + "/new/commonUrl/pageOfSearch")
+        rows = data.get("announcements")
+        if rows is None:
+            if data.get("totalAnnouncement") == 0:
+                return
+            raise ValueError("巨潮资讯索引响应缺少公告列表，不能推断无公告")
+        if not isinstance(rows, list):
+            raise ValueError("巨潮资讯索引格式异常")
+        for row in rows:
+            if row.get("secCode") != code:
+                continue
+            path = row.get("adjunctUrl")
+            if path in seen_urls:
+                continue
+            seen_urls.add(path)
             day = datetime.fromtimestamp(int(row["announcementTime"]) / 1000, CHINA).date()
-            yield day, row["announcementTitle"], row["adjunctUrl"]
+            yield day, row["announcementTitle"], path
+        total = data.get("totalAnnouncement")
+        try:
+            total = int(total) if total is not None else None
+        except (ValueError, TypeError):
+            total = None
+        if (total is not None and page * CN_PAGE_SIZE >= total) or len(rows) < CN_PAGE_SIZE:
+            return
+    # No silent truncation. The caller displays the partial-query status.
+    raise ValueError("巨潮资讯公告超过单次分页上限，索引未查全")
 
 
 def hk_rows(code, start, end):
+    """Increase result window; fail closed at cap rather than assuming completeness.
+
+    HKEX titleSearchServlet's rowRange is a result-limit parameter; its
+    pagination behavior differs from the mainland API. Until a stable paging
+    token is exposed, reaching the cap means an incomplete index.
+    """
     params = dict(stockId=directory("港股")[code], market="SEHK", searchType=0, lang="zh", category=0, documentType=-1,
                   fromDate=start.strftime("%Y%m%d"), toDate=end.strftime("%Y%m%d"),
-                  sortDir=0, sortByOptions="DateTime", rowRange=30, t1code=-2, t2Gcode=-2, t2code=-2)
+                  sortDir=0, sortByOptions="DateTime", rowRange=HK_ROW_LIMIT,
+                  t1code=-2, t2Gcode=-2, t2code=-2)
     data = read_json(HK + "/search/titleSearchServlet.do", query=params,
                      referer=HK + "/search/titlesearch.xhtml?lang=zh")
     rows = json.loads(data["result"]) if isinstance(data["result"], str) else data["result"]
+    if not isinstance(rows, list):
+        raise ValueError("港交所索引格式异常")
+    if len(rows) >= HK_ROW_LIMIT:
+        raise ValueError("港交所索引达到记录上限，本次窗口可能不完整")
+    seen = set()
     for row in rows:
-        if code in re.findall(r"(?<!\d)\d{5}(?!\d)", row["STOCK_CODE"]):
+        if code in re.findall(r"(?<!\d)\d{5}(?!\d)", str(row["STOCK_CODE"])):
+            path = row["FILE_LINK"]
+            if path in seen:
+                continue
+            seen.add(path)
             day = datetime.strptime(row["DATE_TIME"], "%d/%m/%Y %H:%M").date()
-            yield day, row["TITLE"], row["FILE_LINK"]
+            yield day, row["TITLE"], path
 
 
 
@@ -139,18 +183,22 @@ def fetch_disclosures(market, code, as_of, report_period=None):
                                 best, best_score = item, score
                         if best_score >= 60:
                             break
-                if best:
-                    report.update({"状态": "标题与报告期匹配，PDF正文待核验",
+                if best and best_score >= 60:
+                    report.update({"状态": "完整财报标题与报告期匹配，PDF正文待核验",
                                    "公告日期": best["日期"], "标题": best["标题"],
                                    "链接": best["链接"]})
                     matched = {**best, "报告期匹配": report_period}
                     # Reserve D1 for the fiscal report, leaving at most two
                     # recent announcements. Total PDF budget is unchanged.
                     ranked = [matched] + [item for item in ranked if item["链接"] != best["链接"]][:2]
+                elif best:
+                    report.update({"状态": "仅找到对应期间业绩公告，尚未取得完整财报",
+                                   "公告日期": best["日期"], "标题": best["标题"],
+                                   "链接": best["链接"]})
         except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
             report["状态"] = f"对应报告期财报检索未核实（{type(exc).__name__}）"
             # Preserve a previously matched report if later search fails.
-            if best:
+            if best and best_score >= 60:
                 report.update({"公告日期": best["日期"], "标题": best["标题"], "链接": best["链接"]})
                 ranked = [{**best, "报告期匹配": report_period}] + [
                     item for item in ranked if item["链接"] != best["链接"]][:2]
