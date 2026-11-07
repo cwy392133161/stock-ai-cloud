@@ -113,15 +113,22 @@ def duplicate_reports(rows, *, threshold=0.79):
         body = "。".join(str(sections.get(k, "")) for k in HEADINGS)
         if not body.strip("。"):
             continue
-        for earlier, previous in seen:
+        for earlier, previous, earlier_sections in seen:
             similarity = prose_similarity(body, previous)
-            if similarity >= threshold:
+            repeated = sum(
+                prose_similarity(sections.get(name, ""), earlier_sections.get(name, "")) >= 0.91
+                for name in HEADINGS
+                if len(_shingles(sections.get(name, ""))) >= 12
+            )
+            # One changed paragraph cannot legitimize three boilerplate ones.
+            if similarity >= threshold or repeated >= 3:
                 blocked[i] = {
                     "原因": "与另一家公司研究正文高度重复，不符合差异化研究要求",
                     "相似度": round(similarity, 3),
+                    "重复章节数": repeated,
                     "比较对象索引": earlier,
                 }
                 break
         if i not in blocked:
-            seen.append((i, body))
+            seen.append((i, body, sections))
     return blocked
