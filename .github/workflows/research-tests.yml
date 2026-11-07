@@ -11,6 +11,8 @@ on:
       - 'research_brief.py'
       - 'research_quality.py'
       - 'peer_valuation.py'
+      - 'peer_fundamentals.py'
+      - 'research_differentiation.py'
       - 'filing_text.py'
       - 'period_reports.py'
       - 'disclosures.py'
