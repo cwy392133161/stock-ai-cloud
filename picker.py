@@ -186,9 +186,13 @@ def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
     last_err = None
     for i, (name, fn) in enumerate(attempts):
         if i > 0:
-            wait = waits[min(i - 1, len(waits) - 1)]
-            print(f"[{label}] 改试{name}前等待 {wait} 秒（接口限流退避）...", flush=True)
-            time.sleep(wait)
+            # Switching from Eastmoney to Sina changes the upstream provider.
+            # Eastmoney's IP cooldown does not apply to Sina, so don't waste
+            # another five minutes waiting before checking its real fields.
+            wait = 0 if "新浪" in name else waits[min(i - 1, len(waits) - 1)]
+            if wait > 0:
+                print(f"[{label}] 改试{name}前等待 {wait} 秒（接口限流退避）...", flush=True)
+                time.sleep(wait)
         try:
             df = fn()
             if df is None or len(df) == 0:
