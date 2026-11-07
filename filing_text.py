@@ -113,9 +113,12 @@ def extract(data):
             score = len(topics) + numeric + 2 * bool(topics & {3, 4, 5})
             # Never borrow a unit or comparative column label from another PDF
             # page. Use the last preceding metadata line only, when available.
-            unit = _nearest(lines, i, lambda x: bool(UNIT_LINE.search(x)), radius=32)
-            header = _nearest(lines, i, _table_header, radius=18)
-            period = _nearest(lines, i, lambda x: bool(PERIOD_LINE.search(x)), radius=32)
+            # A distant header on the same page can belong to a different
+            # table. Conservative proximity is better than borrowing a false
+            # period or unit for a money comparison.
+            unit = _nearest(lines, i, lambda x: bool(UNIT_LINE.search(x)), radius=18)
+            header = _nearest(lines, i, _table_header, radius=6)
+            period = _nearest(lines, i, lambda x: bool(PERIOD_LINE.search(x)), radius=18)
             body = lines[max(0, i-2):i] + [line] + lines[i+1:i+3]
             passage = "\n".join(x[:240] for x in body)
             # Keep explicit same-page unit in the quoted passage as well as
