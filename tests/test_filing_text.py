@@ -33,8 +33,8 @@ class FilingTextTests(unittest.TestCase):
         self.assertTrue(notices[2]["正文摘录"])
 
     def test_explicit_table_columns_unit_and_reporting_context(self):
-        pages = ("2026年第三季度报告\\n单位：人民币百万元\n"
-                 "项目  本期金额  上年同期\\n营业收入  3,200  2,600")
+        pages = ("2026年第三季度报告\n单位：人民币百万元\n"
+                 "项目  本期金额  上年同期\n营业收入  3,200  2,600")
         with patch("filing_text.subprocess.run",
                    return_value=Mock(stdout=pages.encode())):
             snippets = extract(b"fixture")
@@ -44,7 +44,7 @@ class FilingTextTests(unittest.TestCase):
         self.assertIn("第三季度", matched["期间上下文"])
 
     def test_missing_unit_never_inferred(self):
-        content = "项目  本期  上期\\n营业收入  3,200  2,600"
+        content = "项目  本期  上期\n营业收入  3,200  2,600"
         with patch("filing_text.subprocess.run",
                    return_value=Mock(stdout=content.encode())):
             snippets = extract(b"fixture")
@@ -52,8 +52,8 @@ class FilingTextTests(unittest.TestCase):
         self.assertEqual(snippets[0]["期间上下文"], "未定位")
 
     def test_hk_thousands_unit_not_converted_to_full_currency(self):
-        content = ("For the six months ended 30 June 2026\\n"
-                   "Units: HK$'000\\nParticulars  2026  2025\\n"
+        content = ("For the six months ended 30 June 2026\n"
+                   "Units: HK$'000\nParticulars  2026  2025\n"
                    "Revenue  3,200  2,600")
         with patch("filing_text.subprocess.run",
                    return_value=Mock(stdout=content.encode())):
