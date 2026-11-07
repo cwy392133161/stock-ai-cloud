@@ -5,10 +5,12 @@ Amounts, profit and cash-flow direction are handled by finance_facts.py.
 """
 import re
 from decimal import Decimal, InvalidOperation
+from peer_valuation import valuation_context
+from research_quality import evidence_quality
 
 PERCENT = re.compile(
     r"^([+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)"
-    r"\s*%\s*（(?:累计同比|同比|本期同比|报告期同比)）$"
+    r"\s*%\s*（(?:累计同比|期间同比|同比|本期同比|报告期同比)）$"
 )
 
 
@@ -124,10 +126,47 @@ def build_research_brief(stock, finance, disclosure):
         checkpoints.append("获取对应期官方财报PDF正文，复核关键数值、表头与币种")
     else:
         checkpoints.append("后续公告能否对已披露的经营变化提供持续证据")
+    # The historical evidence is already filtered for publication timing,
+    # period basis and issuer identity; NEVER compare Q1 against Q3 directly.
+    history = finance.get("历史财务") or {}
+    historical = []
+    for fact in (history.get("同口径年度对照") or [])[:8]:
+        unit = "%" if fact["类型"] == "百分比或比率" else "CNY"
+        historical.append(
+            f"{fact['指标']}：{fact['报告期']} = {fact['本期']} {unit}；"
+            f"{fact['基期']} = {fact['对比期']} {unit}（同报告季对照）"
+        )
+    if not historical:
+        historical.append("缺少两个可比较年度的同报告季数据，不能推断三年趋势")
+
+    valuation = valuation_context(stock)
+    relative = ["估值依据：" + valuation["状态"]]
+    if valuation["PE动态"] is not None:
+        relative.append(f"行情动态PE {valuation['PE动态']} 倍（非TTM）")
+    if valuation["PB"] is not None:
+        relative.append(f"行情PB {valuation['PB']} 倍")
+    for factor, obj in (valuation.get("行业参考") or {}).items():
+        relative.append(f"{factor}：个股 {obj['个股倍数']}，"
+                        f"行业样本中位数 {obj['行业样本中位数']}，"
+                        f"有效同行样本 {obj['有效同业样本数']} 只；"
+                        "此差异不是合理价值或买卖信号")
+    if not valuation.get("行业参考"):
+        relative.append("行业估值样本不足或未核实，不声称优于同行")
+
+    # Build a coverage grade from observable inputs; never use an AI self-score.
+    as_of = str(stock.get("行情快照日期") or finance.get("报告期") or "")[:10]
+    quality = evidence_quality(finance, evidence, valuation, as_of)
+    coverage.append("研究证据等级：" + quality["分级"])
+    if quality["缺口"]:
+        coverage.append("待补证：" + "；".join(quality["缺口"]))
+
     return {
         "行情入选依据": "；".join(market_view),
         "财务变化线索": "；".join(change),
         "反面证据": counterarguments[:3],
         "后续验证点": checkpoints[:3],
         "证据覆盖": coverage,
+        "多期财务对照": historical,
+        "估值与同业横截面": relative,
+        "研究证据质量": quality,
     }
