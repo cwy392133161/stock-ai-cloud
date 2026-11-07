@@ -49,6 +49,10 @@ class ReportTests(unittest.TestCase):
             ai_report.main()
             output = Path(tmp, "ai.html").read_text(encoding="utf-8")
         self.assertEqual(post.call_count, 10)
+        for request in post.call_args_list:
+            self.assertEqual(request.kwargs["json"]["response_format"],
+                             {"type": "json_object"})
+            self.assertIn("JSON", request.kwargs["json"]["messages"][0]["content"])
         self.assertEqual(output.count("<article>"), 10)
         self.assertIn("0/5 家公司取得指标", output)
         self.assertIn("2/3 家公司取得指标（完整 1，部分 1，无可用指标 1），产品不适用 2 只", output)
