@@ -37,20 +37,20 @@ def directory(market):
     return {str(row["c"]).zfill(5): row["i"] for row in rows}
 
 
-MAX_CN_PAGES = 5
 CN_PAGE_SIZE = 30
 HK_ROW_LIMIT = 100
 
 
 def cn_rows(code, start, end):
-    """Bounded pagination; never mislabel a truncated index as exhaustive."""
+    """Page until the API reports completion; refuse repeated non-progress pages."""
     org = directory("A股")[code]
     column = "sse" if code.startswith("6") else "bj" if code.startswith(("4", "8", "92")) else "szse"
     form = dict(pageNum=1, pageSize=CN_PAGE_SIZE, column=column, tabName="fulltext", plate="",
                 stock=f"{code},{org}", searchkey="", secid="", category="", trade="",
                 seDate=f"{start}~{end}", sortName="time", sortType="desc", isHLtitle="true")
     seen_urls = set()
-    for page in range(1, MAX_CN_PAGES + 1):
+    page = 1
+    while True:
         form["pageNum"] = page
         data = read_json(CN + "/new/hisAnnouncement/query", form=form,
                          referer=CN + "/new/commonUrl/pageOfSearch")
@@ -61,6 +61,7 @@ def cn_rows(code, start, end):
             raise ValueError("巨潮资讯索引响应缺少公告列表，不能推断无公告")
         if not isinstance(rows, list):
             raise ValueError("巨潮资讯索引格式异常")
+        new_entries = 0
         for row in rows:
             if row.get("secCode") != code:
                 continue
@@ -68,6 +69,7 @@ def cn_rows(code, start, end):
             if path in seen_urls:
                 continue
             seen_urls.add(path)
+            new_entries += 1
             day = datetime.fromtimestamp(int(row["announcementTime"]) / 1000, CHINA).date()
             yield day, row["announcementTitle"], path
         total = data.get("totalAnnouncement")
@@ -77,31 +79,26 @@ def cn_rows(code, start, end):
             total = None
         if (total is not None and page * CN_PAGE_SIZE >= total) or len(rows) < CN_PAGE_SIZE:
             return
-    # No silent truncation. The caller displays the partial-query status.
-    raise ValueError("巨潮资讯公告超过单次分页上限，索引未查全")
-
-
-MAX_HK_QUERIES = 18
+        if not new_entries:
+            # Some providers ignore pageNum and repeat page 1. Stop rather
+            # than issuing an unbounded loop and treating it as complete.
+            raise ValueError("巨潮资讯分页未推进，索引仍未查全")
+        page += 1
 
 
 def hk_rows(code, start, end):
-    """Complete dated HKEX windows via bounded partitioning.
+    """Complete dated HKEX windows by partitioning until the date range ends.
 
     HKEX's legacy titleSearchServlet exposes a rowRange cap rather than
     durable page cursors. When a window reaches the limit, bisect the date
     interval; only mark it complete once every leaf is below the cap.
-    A single day with too many entries or excessive API queries is explicitly
-    unverified instead of silently truncating the company research.
+    A single day with too many entries is explicitly unverified instead of
+    silently truncating the company research. No fixed number-of-calls quota.
     """
     seen = set()
-    calls = 0
     stock_id = directory("港股")[code]
 
     def load(window_start, window_end):
-        nonlocal calls
-        calls += 1
-        if calls > MAX_HK_QUERIES:
-            raise ValueError("港交所索引拆分查询次数达到上限，未查全")
         params = dict(stockId=stock_id, market="SEHK", searchType=0,
                       lang="zh", category=0, documentType=-1,
                       fromDate=window_start.strftime("%Y%m%d"),
