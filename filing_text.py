@@ -48,14 +48,62 @@ def download(url):
     return data
 
 
+
+# Only capture metadata printed in the same PDF page. Never assume a number is
+# in yuan, HKD, thousands, or millions simply because the issuer is listed in
+# a particular market.
+UNIT_LINE = re.compile(
+    r"(?:金额单位|金額單位|货币单位|貨幣單位|计量单位|計量單位|单位|單位|units?)"
+    r"\s*[：:=]\s*(?:人民币|人民幣|港币|港幣|港元|美元|元|千元|万元|萬元|百万元|百萬|亿|億|"
+    r"RMB|HKD|USD|HK\\$|US\\$|CNY)[^。；;]{0,40}|"
+    r"(?:RMB|HKD|USD|HK\\$|US\\$)\s*['’]?\s*0{3}\b",
+    re.I,
+)
+PERIOD_LINE = re.compile(
+    r"(?:报告期|報告期|截至|截至於|截至于|止[三六九十]?[個个]?[月年]|"
+    r"period ended|year ended|months ended|季度报告|季度報告|中期報告|年度報告)"
+    r".{0,70}(?:\d{4}|本期|上年|同期)|"
+    r"\d{4}\s*年\s*第?[一二三四1234]\s*季度",
+    re.I,
+)
+COLUMN_WORDS = re.compile(
+    r"本期|本报告期|本報告期|上期|上年同期|上年同[期日]|"
+    r"当期|當期|期末|期初|本年累计|本年累計|"
+    r"current period|prior period|previous year|comparative|"
+    r"\b20\d{2}\b",
+    re.I,
+)
+
+
+def _table_header(line):
+    """Identify likely financial column headings, not a financial value row."""
+    text = line.strip()
+    labels = len(COLUMN_WORDS.findall(text))
+    has_label = bool(re.search(r"项目|項目|指标|指標|科目|item|particulars", text, re.I))
+    columns = bool(re.search(r"\s{2,}|\t", line))
+    return bool((has_label and labels >= 1) or (labels >= 2 and columns))
+
+
+def _nearest(lines, i, predicate, *, radius=24):
+    for index in range(i, max(-1, i - radius - 1), -1):
+        item = lines[index]
+        if predicate(item):
+            return item.strip()[:180]
+    return None
+
+
 def extract(data):
+    """Find short page-cited passages, retaining only explicit page-local context.
+
+    Table heading and unit fields state '未定位' if absent; the LLM must not
+    borrow a heading from a different page, row, or reporting period.
+    """
     proc = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"],
                           input=data, capture_output=True, check=True, timeout=25)
     candidates = []
-    for page, text in enumerate(proc.stdout.decode("utf-8").split("\f"), 1):
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for page, text in enumerate(proc.stdout.decode("utf-8", errors="replace").split("\f"), 1):
+        lines = [line.rstrip().strip() for line in text.splitlines() if line.strip()]
         for i, line in enumerate(lines):
-            # Keep nearby headings, table units and comparison periods with the matched line.
             if re.search(r"\.{4,}|…{2,}", line):
                 continue
             topics = {j for j, pattern in enumerate(TOPICS) if pattern.search(line)}
@@ -63,19 +111,29 @@ def extract(data):
                 continue
             numeric = bool(re.search(r"\d[\d,.]*[%％]|\d[,.]\d", line))
             score = len(topics) + numeric + 2 * bool(topics & {3, 4, 5})
-            passage = "\n".join(lines[max(0, i-3):i] + [line[:360]] + lines[i+1:i+3])
-            # Keep the matching line even when a neighbouring table row is unusually long.
-            if len(passage) > 580:
-                passage = "\n".join([part[:80] for part in lines[max(0, i-2):i]] +
-                                    [line[:270]] + [part[:65] for part in lines[i+1:i+3]])
-            candidates.append((score, page, i, topics, passage))
+            # Never borrow a unit or comparative column label from another PDF
+            # page. Use the last preceding metadata line only, when available.
+            unit = _nearest(lines, i, lambda x: bool(UNIT_LINE.search(x)), radius=32)
+            header = _nearest(lines, i, _table_header, radius=18)
+            period = _nearest(lines, i, lambda x: bool(PERIOD_LINE.search(x)), radius=32)
+            body = lines[max(0, i-2):i] + [line] + lines[i+1:i+3]
+            passage = "\n".join(x[:240] for x in body)
+            if len(passage) > 570:
+                passage = "\n".join(x[:110] for x in body)
+            context = {"页": page, "摘录": passage[:570],
+                       "表头": header or "未定位", "单位": unit or "未定位",
+                       "期间上下文": period or "未定位"}
+            # Prefer candidates with usable units/headers but still include
+            # non-numeric management explanations and explicit risk factors.
+            score += int(bool(unit)) + int(bool(header)) + int(bool(period))
+            candidates.append((score, page, i, topics, context))
     chosen, covered = [], set()
     while candidates and len(chosen) < 4:
         best = max(candidates, key=lambda c: (len(c[3] - covered), c[0]))
-        _, page, index, topics, passage = best
-        chosen.append({"页": page, "摘录": passage})
+        _, page, index, topics, context = best
+        chosen.append(context)
         covered.update(topics)
-        candidates = [c for c in candidates if c[1] != page or abs(c[2]-index) > 4]
+        candidates = [c for c in candidates if c[1] != page or abs(c[2] - index) > 4]
     return sorted(chosen, key=lambda c: c["页"])
 
 
