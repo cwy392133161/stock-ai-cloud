@@ -81,12 +81,31 @@ class FinancialPeerTests(unittest.TestCase):
         self.assertIn("不足", result["状态"])
         self.assertNotIn("可比指标", result)
 
-    def test_network_budget_exhaustion_degrades_without_false_peer_median(self):
-        result = analyze_peer_financials(
-            stock(), financial(), [{"代码":"000001","行业":"电力"}]*4,
-            "2026-11-06", {}, {"calls":0, "max_calls":0}
-        )
-        self.assertIn("不足", result["状态"])
+    @patch("peer_fundamentals._matching_row")
+    def test_ignores_legacy_call_cap_and_deduplicates_candidates(self, provider):
+        provider.return_value = pd.Series({
+            "TOTALOPERATEREVETZ": 12, "PARENTNETPROFITTZ": 9,
+            "ROEJQ": 7, "ZCFZL": 44,
+        })
+        candidates = [{"代码": f"{i:06d}", "行业": "电力"} for i in range(1, 27)]
+        candidates.append(candidates[0])
+        budget = {"calls": 0, "max_calls": 0}  # old cap is inert
+        result = analyze_peer_financials(stock(), financial(), candidates,
+                                         "2026-11-06", {}, budget)
+        self.assertEqual(provider.call_count, 26)
+        self.assertEqual(budget["calls"], 26)
+        self.assertEqual(result["同行有效公司"], 26)
+        self.assertIn("可比指标", result)
+
+    def test_candidate_pool_no_longer_limits_at_eight(self):
+        rows = pd.DataFrame([
+            {"代码": "000690", "行业": "电力", "流通市值": 1e10},
+        ] + [
+            {"代码": f"{i:06d}", "行业": "电力", "流通市值": 1e10 + i * 1e7}
+            for i in range(1, 16)
+        ])
+        selected = candidate_pool(rows, [stock()])
+        self.assertEqual(len(selected["000690"]), 15)
 
 
 if __name__ == "__main__":
