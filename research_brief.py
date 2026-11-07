@@ -44,7 +44,7 @@ def _valid_snapshot_value(value):
     return isinstance(value, (str, int, float)) and str(value).strip() not in ("", "—", "None", "nan")
 
 
-def build_research_brief(stock, finance, disclosure):
+def build_research_brief(stock, finance, disclosure, as_of=None):
     """Return grounded investment-research questions and evidence coverage.
 
     No inferred financial amounts, valuations, industry rankings, targets,
@@ -154,7 +154,9 @@ def build_research_brief(stock, finance, disclosure):
         relative.append("行业估值样本不足或未核实，不声称优于同行")
 
     # Build a coverage grade from observable inputs; never use an AI self-score.
-    as_of = str(stock.get("行情快照日期") or finance.get("报告期") or "")[:10]
+    # NEVER substitute the fiscal report date for the market snapshot date.
+    # A missing snapshot date is an evidence failure, not a reason to infer it.
+    as_of = str(as_of or stock.get("行情快照日期") or "")[:10]
     quality = evidence_quality(finance, evidence, valuation, as_of)
     coverage.append("研究证据等级：" + quality["分级"])
     if quality["缺口"]:
