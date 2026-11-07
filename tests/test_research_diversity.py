@@ -38,6 +38,19 @@ class DiversityTests(unittest.TestCase):
         self.assertGreaterEqual(prose_similarity("相同的研究内容", "相同的研究内容"), 0.99)
         self.assertLess(prose_similarity("营收变动", "负债结构"), 0.1)
 
+    def test_three_cloned_sections_rejected_even_if_one_is_changed(self):
+        common = {
+            "入选逻辑": "市场近期关注度提高，但这不能说明企业未来经营会改善，后续还须取得可靠财务证据。",
+            "经营和估值": "当前估值样本不能调整业务模式差异，因此需要关注利润质量与经营现金流表现。",
+            "反面证据": "如果同报告期财务指标发生变化，当前研究假设可能被反证，不能仅凭走势得出结论。",
+            "跟踪条件": "核对下一期收入同比和利润绝对额，验证是否存在真实主营业务变化。",
+        }
+        changed = {**common, "跟踪条件": "请在新一期财报中重新核对官方PDF来源、披露日期与币种，并取得新的现金流量表。"}
+        blocked = duplicate_reports([
+            ("A股", "000690", common), ("A股", "000001", changed),
+        ], threshold=0.995)
+        self.assertEqual(blocked[1]["重复章节数"], 3)
+
     def test_render_page_downgrades_second_duplicated_report(self):
         sections = {"入选逻辑":"相同的论证内容支持进一步观察",
                     "经营和估值":"同一组经营证据需要在下期再次验证",
