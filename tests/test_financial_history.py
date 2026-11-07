@@ -75,7 +75,7 @@ class FinancialHistoryTests(unittest.TestCase):
             )
         api.assert_called_once_with(symbol="SZ000690")
         self.assertEqual(amount, 500)
-        self.assertEqual({day: Decimal(value) for day, value in history},
+        self.assertEqual({day: Decimal(value) for day, value in history.items()},
                          {"2026-09-30": Decimal("500"), "2025-09-30": Decimal("-200")})
 
     def test_hk_only_ratios_with_matching_actual_start_and_end(self):
