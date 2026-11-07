@@ -55,7 +55,8 @@ class ReportTests(unittest.TestCase):
         # The research quality gate now warns on every short/unsupported
         # mock AI analysis in addition to the market-level data outage.
         self.assertEqual(log.getvalue().count("::warning::A股"), 1)
-        self.assertIn("AI研究正文可用内容较少", log.getvalue())
+        self.assertIn("深度研判未通过证据门槛", log.getvalue())
+        self.assertIn("research-approved-count", output)
         self.assertIn("::warning::A股", log.getvalue())
         self.assertNotIn("test-only", log.getvalue())
 
