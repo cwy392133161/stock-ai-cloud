@@ -55,6 +55,44 @@ class ReportGuardTests(unittest.TestCase):
                 body = ai_report.cited_narrative(unsafe, notices)
                 self.assertIn("未通过发布校验", body)
 
+    def test_matched_period_report_and_pdf_table_units_displayed(self):
+        rows = [("港股", {"代码": "00585", "名称": "示例公司"},
+                 "未提供经营数字。", {"状态": "部分可用", "报告期": "2026-06-30"})]
+        pdf = "https://www1.hkexnews.hk/listedco/report.pdf"
+        evidence = {
+            ("港股", "00585"): {
+                "来源": "港交所披露易", "查询期间": "2026-10-08 至 2026-11-06",
+                "状态": "已取得公告索引",
+                "对应报告期财报": {
+                    "报告期": "2026-06-30",
+                    "状态": "标题与报告期匹配，PDF正文待核验",
+                    "标题": "2026年中期報告", "链接": pdf,
+                    "正文状态": "已提取正文片段",
+                },
+                "公告": [{
+                    "编号": "D1", "日期": "2026-08-22", "标题": "2026年中期報告",
+                    "链接": pdf, "报告期匹配": "2026-06-30",
+                    "正文状态": "已提取正文片段",
+                    "正文摘录": [{
+                        "页": 3, "摘录": "Revenue  3,200  2,600",
+                        "表头": "Particulars  2026  2025",
+                        "单位": "Units: HK$'000",
+                        "期间上下文": "Six months ended 30 June 2026",
+                    }],
+                }],
+            }
+        }
+        with patch.object(ai_report, "financial_comparison", return_value=""):
+            page = ai_report.render_report(
+                {"updated": "2026-11-06"}, rows, "2026-11-07",
+                disclosures=evidence
+            )
+        self.assertIn("对应报告期的财报", page)
+        self.assertIn("2026-06-30", page)
+        self.assertIn("HK$&#x27;000", page)
+        self.assertIn("Particulars  2026  2025", page)
+        self.assertIn("#page=3", page)
+
     def test_only_program_can_publish_comparison(self):
         rows = [("A股", {"代码": "000690", "名称": "宝新能源"},
                  "现金流远高于营收。", {"状态": "可用"})]
