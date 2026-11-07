@@ -124,19 +124,23 @@ def assemble_history(rows, latest, market, cashflows=None):
         if all(item == items[0] for item in items)
     }
     periods = sorted(unambiguous, reverse=True)[:MAX_PERIODS]
-    points = [unambiguous[p] for p in periods]
+    points = [unambiguous[p] for p in periods if unambiguous[p]["指标"]]
     current = _iso(latest.get("_period"))
     if current not in unambiguous:
         return {"状态": "最新报告期无唯一可信记录", "记录": points,
                 "同口径年度对照": []}
     reference = unambiguous[current]
-    comparable = [x for x in points if _comparable(reference, x, market)]
+    comparable = [x for x in points if _comparable(reference, x, market)
+                  and bool(x["指标"])]
     comparable = sorted(comparable, key=lambda x: x["报告期"], reverse=True)[:4]
     states = []
     for field in ("收入", "归母净利润", "经营现金流净额", "ROE", "资产负债率", "收入同比", "归母净利润同比"):
+        # Never compare two old years if the latest period lacks this metric.
+        if field not in reference["指标"]:
+            continue
         observed = [x for x in comparable if field in x["指标"]]
         if len(observed) >= 2:
-            new, old = observed[0], observed[1]
+            new, old = reference, observed[1]
             states.append({"指标": field, "本期": new["指标"][field],
                            "对比期": old["指标"][field],
                            "报告期": new["报告期"], "基期": old["报告期"],
