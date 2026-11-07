@@ -72,6 +72,31 @@ def update_index(index_html, status, has_report):
     return NAV.sub(lambda _: text, index_html, count=1)
 
 
+BANNER = re.compile(r'<p class="research-publication-alert"[^>]*>.*?</p>', re.S)
+
+
+def update_report_banner(report_html, status):
+    """Warn even when readers open the old AI URL without visiting home."""
+    if not report_html:
+        return report_html
+    state = status["state"]
+    report_html = BANNER.sub("", report_html)
+    message = status["description"]
+    banner = (
+        '<p class="research-publication-alert" data-research-state="' +
+        state + '" style="border:1px solid #cbd5e1;padding:12px;border-radius:8px">'
+        '<b>研究发布状态：</b>' + message + '。'
+        '榜单时点：' + status["snapshot"] + '；本页原研究时点：' +
+        (status["report_snapshot"] or "未核实") + '。</p>'
+    )
+    # Build-generated pages use a predictable H1; no generic insertion into
+    # arbitrary untrusted HTML and no duplicate banners on repeated runs.
+    header = re.search(r"</h1>", report_html)
+    if not header:
+        raise ValueError("AI页面缺少标题，无法显式标记旧报告")
+    return report_html[:header.end()] + banner + report_html[header.end():]
+
+
 def main():
     data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
     home_path = DOCS / "index.html"
@@ -83,6 +108,8 @@ def main():
     rewritten = update_index(home_path.read_text(encoding="utf-8"), state,
                              has_report=bool(report_html))
     home_path.write_text(rewritten, encoding="utf-8")
+    if report_html:
+        report_path.write_text(update_report_banner(report_html, state), encoding="utf-8")
     state["recorded_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (DOCS / "ai-status.json").write_text(
         json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
