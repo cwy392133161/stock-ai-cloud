@@ -42,10 +42,12 @@ def decode_report(content):
     if not all(isinstance(sections.get(key), str) for key in SECTIONS):
         return None
     quotes = obj.get("source_quotes", [])
-    if not isinstance(quotes, list):
+    claims = obj.get("source_claims", [])
+    if not isinstance(quotes, list) or not isinstance(claims, list):
         return None
     return {"sections": {key: sections[key] for key in SECTIONS},
-            "source_quotes": quotes[:6]}
+            "source_quotes": quotes[:6],
+            "source_claims": claims[:8]}
 
 
 def validate_source_quote(entry, notices):
@@ -88,6 +90,62 @@ def validate_source_quote(entry, notices):
                 "校验": "仅逐字核对摘录位置；不认证模型的因果解释",
             }
     return None
+
+
+CAUSAL_WORDS = re.compile(r"主要系|主要由|原因|由于|由於|导致|導致|因而|归因|歸因|mainly due|attributable", re.I)
+EXTERNAL_INSTRUCTION = re.compile(
+    r"忽略(?:之前|前面|以上|所有).{0,15}(?:指令|限制|规则)|"
+    r"要求(?:模型|系统|AI).{0,10}(?:执行|泄露|输出)|"
+    r"ignore previous instructions|system prompt|assistant should", re.I
+)
+
+
+def validate_source_claim(entry, notices):
+    """Publish a disclosure claim ONLY as a direct quotation, not a paraphrase.
+
+    A title/link/valid page number cannot establish entailment. Requiring the
+    actual claim text to occur inside the quote, and the quote on the cited
+    page, prevents contradiction-by-paraphrase and wrong-page sourcing. We
+    cannot certify financial meaning automatically; higher-order inference
+    stays in an explicitly hypothetical section.
+    """
+    if not isinstance(entry, dict):
+        return None
+    label = entry.get("claim")
+    quote = entry.get("quote")
+    if not isinstance(label, str) or not isinstance(quote, str):
+        return None
+    exact = _normalized(label)
+    whole = _normalized(quote)
+    if not 8 <= len(exact) <= 150 or not exact in whole:
+        return None
+    if EXTERNAL_INSTRUCTION.search(label) or EXTERNAL_INSTRUCTION.search(quote):
+        return None
+    source = validate_source_quote(entry, notices)
+    if not source:
+        return None
+    typ = entry.get("type")
+    if typ not in ("直接披露", "经营原因"):
+        return None
+    if typ == "经营原因" and not CAUSAL_WORDS.search(label):
+        return None
+    return {
+        **source,
+        "主张原文": label,
+        "主张类别": typ,
+        "证据校验": "主张为官方摘录逐字子串，未采用AI改写；仍需人工复核原文语境",
+    }
+
+
+def verified_claims(entries, notices):
+    kept = []
+    seen = set()
+    for item in (entries or [])[:8]:
+        result = validate_source_claim(item, notices)
+        if result and (result["引用"], result["主张原文"]) not in seen:
+            seen.add((result["引用"], result["主张原文"]))
+            kept.append(result)
+    return kept
 
 
 def verified_quotes(entries, notices):
