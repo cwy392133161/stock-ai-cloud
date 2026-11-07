@@ -1,4 +1,4 @@
-"""Bounded, same-period A-share peer fundamentals, never a fair-value model.
+"""Same-period A-share peer fundamentals, never a fair-value model.
 
 The quote snapshot supplies issuer/sector/cap candidates; current-period
 financial reports come from the already-used Eastmoney financial endpoint.
@@ -23,8 +23,6 @@ PEER_METRICS = {
     "资产负债率": "ZCFZL",
 }
 MIN_FINANCIAL_PEERS = 3
-MAX_CALLS = 20
-MAX_PEERS_PER_STOCK = 5
 MIN_VALID_PER_FIELD = 3
 
 
@@ -43,7 +41,7 @@ def _code(value):
     return s if re.fullmatch(r"[0-9]{6}", s) else None
 
 
-def candidate_pool(ranked, top, *, max_per_stock=8):
+def candidate_pool(ranked, top):
     """Choose similarly sized liquid sector constituents, not only Top 20.
 
     This is a supplier industry-label sample, not rigorously defined economic
@@ -73,7 +71,7 @@ def candidate_pool(ranked, top, *, max_per_stock=8):
                   if x["代码"] != code
                   and 1 / 3 <= x["流通市值"] / float(cap) <= 3]
         values.sort(key=lambda x: (abs(math.log(x["流通市值"] / float(cap))), x["代码"]))
-        out[code] = values[:max_per_stock]
+        out[code] = values
     return out
 
 
@@ -126,8 +124,10 @@ def _value_from_finance(finance, label):
 def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
     """Only same-ending-period, same-provider ratio medians; otherwise N/A.
 
-    cache and budget are shared across the ten issuer reports. Never claim
-    company-specific outperformance from a weak or selection-biased pool.
+    The shared cache deduplicates requests across companies and budget only
+    tracks how many API requests were made; there is no quota or sample-count
+    cut-off. The available snapshot candidate pool remains finite.
+    Never claim company-specific outperformance from a weak peer sample.
     """
     unavailable = {"状态": "同行财务口径或样本不足", "行业": stock.get("行业") or "未核实",
                    "原因": "需要至少3家同供应商行业、相近规模、同报告期且披露时间合规的同行"}
@@ -137,17 +137,17 @@ def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
         return unavailable
     target_period = str(finance["报告期"])
     parsed = []
-    for item in candidates[:MAX_PEERS_PER_STOCK]:
+    unique_peer_codes = set()
+    for item in candidates:
         code = _code(item.get("代码"))
         if not code or item.get("行业") != stock.get("行业"):
             continue
-        if code == _code(stock.get("代码")):
+        if code == _code(stock.get("代码")) or code in unique_peer_codes:
             continue
+        unique_peer_codes.add(code)
         key = (code, target_period, str(as_of)[:10])
         if key not in cache:
-            if budget["calls"] >= budget["max_calls"]:
-                break
-            budget["calls"] += 1
+            budget["calls"] = budget.get("calls", 0) + 1
             try:
                 cache[key] = _matching_row(code, target_period, as_of)
             except (ValueError, KeyError, OSError, TypeError, AttributeError):
@@ -185,6 +185,6 @@ def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
         "同行有效公司": len(parsed),
         "同行代码": [code for _, code in parsed],
         "可比指标": values,
-        "限制": "仅小规模便利样本；市值匹配不保证细分业务与会计政策可比；"
+        "限制": "行业与市值匹配不保证细分业务与会计政策可比；"
                 "不得把PE/PB差异解读为合理价值，不能和港股不同币种随意比较",
     }
