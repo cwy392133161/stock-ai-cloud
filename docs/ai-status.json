@@ -1,0 +1,11 @@
+{
+  "state": "facts-only",
+  "description": "本期研究资料已更新，但10只均未通过AI解释发布门槛",
+  "snapshot": "2026-11-06 23:25",
+  "report_snapshot": "2026-11-06 23:25",
+  "ai_step": "success",
+  "market_state": "not_rechecked",
+  "research_approved": 0,
+  "research_total": 10,
+  "recorded_utc": "2026-11-07T23:50:47+00:00"
+}
