@@ -256,7 +256,8 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None):
         if (market, code) in archived_codes:
             narrative = ('<details><summary>原 AI 分析（生成后已更新财务数据）</summary>'
                          + narrative + '</details>')
-        parts.append(narrative + '</article>')
+        parts.append('<section class="ai-insight"><h3>DeepSeek 深度研判（解释性判断）</h3>' +
+                     narrative + '</section></article>')
     parts.append('</html>')
     return "\n".join(parts)
 
@@ -356,6 +357,14 @@ def main():
                   f"结束原因={reason}，输出 token={tokens}", flush=True)
         if not content.strip():
             raise ValueError(f"{market} {code} 两次均未取得完整 AI 正文")
+        links = {(n["编号"], str(p["页"])): n["链接"]
+                 for n in evidence["公告"] for p in n.get("正文摘录", [])}
+        kept = review_narrative(content, links)
+        print(f"AI 发布校验 {market} {code}：原始 {len(content)} 字，"
+              f"保留 {len(kept)} 字，公告证据页 {len(links)} 个", flush=True)
+        if len(kept) < 70 and os.getenv("GITHUB_ACTIONS") == "true":
+            print(f"::warning::AI研究正文可用内容较少：{market} {code}，"
+                  "页面仍显示确定性研究底稿与财务证据", flush=True)
         output.append((market,s,content[:1600],finance))
     if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
