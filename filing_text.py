@@ -118,6 +118,10 @@ def extract(data):
             period = _nearest(lines, i, lambda x: bool(PERIOD_LINE.search(x)), radius=32)
             body = lines[max(0, i-2):i] + [line] + lines[i+1:i+3]
             passage = "\n".join(x[:240] for x in body)
+            # Keep explicit same-page unit in the quoted passage as well as
+            # separate structured metadata; older readers display only 摘录.
+            if unit and unit not in passage:
+                passage = unit + "\n" + passage
             if len(passage) > 570:
                 passage = "\n".join(x[:110] for x in body)
             context = {"页": page, "摘录": passage[:570],
