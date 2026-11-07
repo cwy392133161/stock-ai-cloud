@@ -44,7 +44,7 @@ def _valid_snapshot_value(value):
     return isinstance(value, (str, int, float)) and str(value).strip() not in ("", "—", "None", "nan")
 
 
-def build_research_brief(stock, finance, disclosure, as_of=None):
+def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=None):
     """Return grounded investment-research questions and evidence coverage.
 
     No inferred financial amounts, valuations, industry rankings, targets,
@@ -153,6 +153,24 @@ def build_research_brief(stock, finance, disclosure, as_of=None):
     if not valuation.get("行业参考"):
         relative.append("行业估值样本不足或未核实，不声称优于同行")
 
+    # Pair market PE/PB distributions with actual same-period financial
+    # characteristics. A provider-industry convenience sample is NOT a
+    # rigorously matched investment peer group.
+    peer_finance = peer_finance or {"状态": "同行财务口径或样本不足"}
+    if peer_finance.get("状态") == "有限同行财务对照（并非投资评级）":
+        relative.append("同报告期同行财务样本：" +
+                        str(peer_finance["同行有效公司"]) + " 家；" +
+                        str(peer_finance["报告期"]))
+        for name, fact in peer_finance.get("可比指标", {}).items():
+            relative.append(
+                name + "：本公司 " + fact["本公司"] +
+                "%，同行样本中位数 " + fact["同行中位数"] +
+                "%；有效样本 " + str(fact["同行有效样本数"]) +
+                " 家。此为未经商业模式调整的描述性比较。"
+            )
+    else:
+        relative.append("同报告期同行财务对照：样本不足或未核实，不给出同行领先结论")
+
     # Build a coverage grade from observable inputs; never use an AI self-score.
     # NEVER substitute the fiscal report date for the market snapshot date.
     # A missing snapshot date is an evidence failure, not a reason to infer it.
@@ -204,5 +222,6 @@ def build_research_brief(stock, finance, disclosure, as_of=None):
         "多期财务对照": historical,
         "估值与同业横截面": relative,
         "研究证据质量": quality,
+        "同业财务分析": peer_finance,
         "条件情景（非价格预测）": scenarios,
     }
