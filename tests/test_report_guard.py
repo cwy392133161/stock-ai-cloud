@@ -118,6 +118,7 @@ class ReportGuardTests(unittest.TestCase):
             "公司合理目标价为35.6元。",
             "建议买入这家公司以保证收益。",
             "反面证据：经营现金流较营收高出十倍。",
+            "入选逻辑：销售收入增加三成，所以股价必涨。",
         ):
             with self.subTest(content=content):
                 body = ai_report.cited_narrative(content, [])
