@@ -29,15 +29,26 @@ class DisclosurePagingTests(unittest.TestCase):
 
     @patch("disclosures.directory", return_value={"000690": "test-org"})
     @patch("disclosures.read_json")
-    def test_mainland_limited_page_count_is_explicit_error(self, api, _):
+    def test_mainland_paginates_past_original_five_page_cap(self, api, _):
         api.side_effect = [
-            {"totalAnnouncement": 200, "announcements": self.make_cn(i*30, 30)}
-            for i in range(5)
+            {"totalAnnouncement": 200,
+             "announcements": self.make_cn(i*30, 30 if i < 6 else 20)}
+            for i in range(7)
         ]
-        with self.assertRaisesRegex(ValueError, "未查全"):
+        result = list(disclosures.cn_rows("000690", date(2026, 10, 1),
+                                          date(2026, 11, 6)))
+        self.assertEqual(len(result), 200)
+        self.assertEqual(api.call_count, 7)
+
+    @patch("disclosures.directory", return_value={"000690": "test-org"})
+    @patch("disclosures.read_json")
+    def test_mainland_repeated_page_stops_without_unbounded_loop(self, api, _):
+        response = {"totalAnnouncement": 300, "announcements": self.make_cn(0, 30)}
+        api.return_value = response
+        with self.assertRaisesRegex(ValueError, "分页未推进"):
             list(disclosures.cn_rows("000690", date(2026, 10, 1),
                                     date(2026, 11, 6)))
-        self.assertEqual(api.call_count, 5)
+        self.assertEqual(api.call_count, 2)
 
     @patch("disclosures.directory", return_value={"00585": "test-stock"})
     @patch("disclosures.read_json")
@@ -73,6 +84,24 @@ class DisclosurePagingTests(unittest.TestCase):
         queries = [call.kwargs["query"] for call in api.call_args_list]
         self.assertNotEqual(queries[0]["fromDate"], queries[2]["fromDate"])
         self.assertLess(int(queries[1]["toDate"]), int(queries[2]["fromDate"]))
+
+    @patch("disclosures.directory", return_value={"00585": "test-stock"})
+    @patch("disclosures.read_json")
+    def test_hk_date_splitting_exceeds_old_eighteen_query_cap(self, api, _):
+        def response(url, *, query=None, referer=None):
+            start, end = query["fromDate"], query["toDate"]
+            if start != end:
+                return {"result": [
+                    {"STOCK_CODE": "00585", "DATE_TIME": "01/11/2026 10:25",
+                     "TITLE": "密集公告", "FILE_LINK": f"/{i}.pdf"}
+                    for i in range(100)
+                ]}
+            return {"result": []}
+        api.side_effect = response
+        result = list(disclosures.hk_rows("00585", date(2026, 11, 1),
+                                         date(2026, 11, 11)))
+        self.assertEqual(result, [])
+        self.assertGreater(api.call_count, 18)
 
     @patch("disclosures.directory", return_value={"00585": "test-stock"})
     @patch("disclosures.read_json")
