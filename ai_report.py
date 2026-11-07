@@ -143,12 +143,21 @@ def review_narrative(content, links=None):
                 and not NUMERIC_OR_COMPARISON.search(plain)
                 and not re.search(r"已经|已实现|确保|必然|将会", plain)
             )
+            # An explicit caveat ("high score cannot prove profit improves")
+            # is not a claim of actual profit direction. Preserve such useful
+            # limitations without allowing unsupported profit assertions.
+            safe_caveat = (
+                re.search(r"(?:不能|无法|不足以|并不|不应).{0,12}"
+                          r"(?:说明|证明|确认|等同于|表明|直接推断).{0,40}"
+                          r"(?:利润|利潤|盈利|现金流|現金流|归母|歸母|净利|淨利)", plain)
+                and not NUMERIC_OR_COMPARISON.search(plain)
+            )
             blocked = (bad_reference or event_without_source or
                        UNVERIFIED_QUANTITY.search(plain) or CHINESE_QUANTITY.search(plain) or
                        OVERCONFIDENT.search(plain) or
                        DEPENDENT_CLAIM.search(plain) or
                        (removed and DEPENDENT_FOLLOWUP.search(plain)) or
-                       (RESERVED_TOPICS.search(plain) and not (cited_cause or safe_monitoring)))
+                       (RESERVED_TOPICS.search(plain) and not (cited_cause or safe_monitoring or safe_caveat)))
             if blocked:
                 removed = True
                 continue
