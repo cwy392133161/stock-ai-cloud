@@ -100,23 +100,34 @@ def metric(raw, unit, money_issue):
 
 
 def cashflow(hk, code, symbol, row, as_of):
+    """One provider call supplies the current period and defensible history."""
     if hk:
         frame = ak.stock_financial_hk_report_em(stock=code, symbol="现金流量表", indicator="报告期")
     else:
         frame = ak.stock_cash_flow_sheet_by_report_em(symbol=symbol[-2:] + code)
-    rows = dated_rows(frame, symbol, as_of)
-    rows = rows.loc[rows["_period"] == row["_period"]]
+    all_rows = dated_rows(frame, symbol, as_of)
+    rows = all_rows.loc[all_rows["_period"] == row["_period"]]
+    history = {}
     if hk:
         rows = rows.loc[(rows["STD_ITEM_NAME"] == "经营业务现金净额") &
                         (rows["START_DATE"] == row["START_DATE"]) &
                         (rows["DATE_TYPE_CODE"] == row["DATE_TYPE_CODE"])]
         field = "AMOUNT"
     else:
+        relevant = all_rows.loc[all_rows["CURRENCY"] == row["CURRENCY"]]
         rows = rows.loc[rows["CURRENCY"] == row["CURRENCY"]]
         field = "NETCASH_OPERATE"
+        # Ambiguous revisions and missing values must not silently enter
+        # historical profitability/cash-conversion comparisons.
+        for period, group in relevant.groupby("_period"):
+            if len(group) != 1:
+                continue
+            value, issue = metric(group.iloc[0].get(field), "元", None)
+            if issue is None:
+                history[str(period.date())] = value
     if len(rows) != 1:
         raise FinancialDataError("没有唯一匹配的同口径现金流记录")
-    return rows.iloc[0][field]
+    return rows.iloc[0][field], history
 
 
 def fetch_financial(market, code, name="", as_of=None, *, directory=None):
@@ -189,11 +200,13 @@ def fetch_financial(market, code, name="", as_of=None, *, directory=None):
             suffix = "%" if unit == "%" else currency + ("/股" if unit == "元/股" else "")
             metrics[label] = f"{value} {suffix}（{basis}）"
     label = "经营活动现金流量净额"
+    historical_cashflows = {}
     try:
         if money_issue:
             missing[label] = money_issue
         else:
-            value, issue = metric(cashflow(hk, code, symbol, row, as_of), "元", None)
+            raw_flow, historical_cashflows = cashflow(hk, code, symbol, row, as_of)
+            value, issue = metric(raw_flow, "元", None)
             if issue:
                 missing[label] = issue
             else:
@@ -213,7 +226,7 @@ def fetch_financial(market, code, name="", as_of=None, *, directory=None):
     result["状态"] = ("部分可用" if missing else "可用") if metrics else "无可用指标"
     result["指标"] = metrics
     try:
-        result["历史财务"] = assemble_history(rows, row, market)
+        result["历史财务"] = assemble_history(rows, row, market, cashflows=historical_cashflows)
     except (ValueError, TypeError, KeyError) as exc:
         # History is optional; it must never break existing current-period facts.
         result["历史财务"] = {"状态": f"历史数据不可核实（{type(exc).__name__}）", "记录": [], "同口径年度对照": []}
