@@ -79,7 +79,6 @@ def focal_question(stock, finance, evidence=None, peer=None):
         "研究主题": label,
         "核心矛盾": why,
         "下一期关键问题": follow,
-        "市场": "港股" if str(stock.get("代码", "")).startswith("0") and len(str(stock.get("代码", ""))) == 5 else "按榜单市场",
         "区别来源": "同报告期财务增长方向、杠杆、ROE、历史覆盖及行情风险提示",
     }
 
