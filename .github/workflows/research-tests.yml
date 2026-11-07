@@ -14,6 +14,7 @@ on:
       - 'disclosures.py'
       - 'picker.py'
       - 'tests/**'
+      - 'test_*.py'
       - '.github/workflows/research-tests.yml'
   workflow_dispatch:
 
