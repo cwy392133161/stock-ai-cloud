@@ -53,8 +53,10 @@ def industry_benchmarks(frame, *, min_pe=12, min_pb=12, min_group=20, min_covera
 
 def valuation_context(stock):
     """Use structured quote fields. Do NOT parse numbers from prose/score."""
-    pe = positive_ratio(stock.get("市盈率-动态"), 200)
-    pb = positive_ratio(stock.get("市净率"), 20)
+    # Use the same PE/PB validity window for the individual and its sector.
+    # A value excluded from the reference sample cannot be compared to it.
+    pe = positive_ratio(stock.get("市盈率-动态"), 100)
+    pb = positive_ratio(stock.get("市净率"), 10)
     industry = stock.get("行业")
     raw = stock.get("行业估值参考")
     reference = raw if isinstance(raw, dict) else {}
