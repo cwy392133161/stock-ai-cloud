@@ -100,6 +100,16 @@ CHINESE_QUANTITY = re.compile(
     r"[零〇一二两兩三四五六七八九十百千万萬亿億]+"
     r"(?:元|万元|萬元|亿元|億元|港元|成|倍|个?百分点|個?百分點|股)"
 )
+UNSUPPORTED_OPERATING_FACT = re.compile(
+    r"(?:市场份额|产品销量|订单|在手合同|产能|市场地位|业务规模|"
+    r"客户数量|新客户|核心产品|竞争优势|成本优势|研发能力|"
+    r"市场需求|行业优势|核心技术|毛利率)"
+    r".{0,18}(?:已经|已|正持续|持续|显著|明显|大幅|快速|稳步|"
+    r"大增|增加|增长|提升|改善|领先|扩大|扩张|突破|落地|成功)|"
+    r"(?:已|持续|显著|大幅|迅速|稳步)"
+    r".{0,14}(?:获得订单|签约|扩产|市场份额|业务扩张|客户增长|销量增长)",
+    re.I,
+)
 OVERCONFIDENT = re.compile(
     r"稳赚|必涨|一定上涨|保证收益|确定上涨|涨停预期|"
     r"建议买入|建议卖出|目标价|上行空间|估值低估|显著低估|"
@@ -134,6 +144,17 @@ def review_narrative(content, links=None):
             # previously match the finance-specific blocklist.
             bad_reference = bool(references) and not all(ref in links for ref in references)
             event_without_source = bool(EVENT_ASSERTION.search(plain)) and not references
+            # The structured research includes source quotes in a separate
+            # verified section. Narrative prose must not smuggle unsupported
+            # operating achievements even when no amounts appear.
+            operating = UNSUPPORTED_OPERATING_FACT.search(plain)
+            preceding = plain[max(0, operating.start() - 32):operating.start()] if operating else ""
+            explicit_uncertainty = bool(re.search(
+                r"(?:不能|无法|不足以|未能|不代表|不意味|并不|尚未|是否|"
+                r"如果|若|假设|待核验|需要核实|需要确认|不能证明|并未确认)"
+                r".{0,24}$", preceding
+            ))
+            unsupported_operating = bool(operating) and not references and not explicit_uncertainty
             # Monitoring questions about next quarter's profit or cash flow
             # are useful and do not state a new financial fact. Preserve them,
             # but never whitelist amounts, direction claims or certainty.
@@ -154,7 +175,7 @@ def review_narrative(content, links=None):
                 and not CHINESE_QUANTITY.search(plain)
                 and not OVERCONFIDENT.search(plain)
             )
-            blocked = (bad_reference or event_without_source or
+            blocked = (bad_reference or event_without_source or unsupported_operating or
                        UNVERIFIED_QUANTITY.search(plain) or CHINESE_QUANTITY.search(plain) or
                        OVERCONFIDENT.search(plain) or
                        DEPENDENT_CLAIM.search(plain) or
