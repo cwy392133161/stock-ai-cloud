@@ -7,6 +7,7 @@ import akshare as ak
 import pandas as pd
 
 from hk_original import fetch_hk_original
+from financial_history import assemble_history
 from hk_products import SOURCE_URL
 
 
@@ -211,6 +212,11 @@ def fetch_financial(market, code, name="", as_of=None, *, directory=None):
             result["原币金额来源"] = "东方财富原币财务报表（按科目匹配，以原币单位展示）"
     result["状态"] = ("部分可用" if missing else "可用") if metrics else "无可用指标"
     result["指标"] = metrics
+    try:
+        result["历史财务"] = assemble_history(rows, row, market)
+    except (ValueError, TypeError, KeyError) as exc:
+        # History is optional; it must never break existing current-period facts.
+        result["历史财务"] = {"状态": f"历史数据不可核实（{type(exc).__name__}）", "记录": [], "同口径年度对照": []}
     if missing:
         result["缺失"] = missing
     return result
