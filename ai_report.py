@@ -150,7 +150,9 @@ def review_narrative(content, links=None):
                 re.search(r"(?:不能|无法|不足以|并不|不应).{0,12}"
                           r"(?:说明|证明|确认|等同于|表明|直接推断).{0,40}"
                           r"(?:利润|利潤|盈利|现金流|現金流|归母|歸母|净利|淨利)", plain)
-                and not NUMERIC_OR_COMPARISON.search(plain)
+                and not UNVERIFIED_QUANTITY.search(plain)
+                and not CHINESE_QUANTITY.search(plain)
+                and not OVERCONFIDENT.search(plain)
             )
             blocked = (bad_reference or event_without_source or
                        UNVERIFIED_QUANTITY.search(plain) or CHINESE_QUANTITY.search(plain) or
