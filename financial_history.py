@@ -96,7 +96,7 @@ def _comparable(a, b, market):
     return True
 
 
-def assemble_history(rows, latest, market):
+def assemble_history(rows, latest, market, cashflows=None):
     """Transform provider rows into dated, defensible evidence (no network)."""
     if market not in ("A股", "港股"):
         return {"状态": "市场无效", "记录": [], "同口径年度对照": []}
@@ -106,6 +106,14 @@ def assemble_history(rows, latest, market):
         record = _financial_row(frame_row, market)
         if record:
             selected.append(record)
+    # Attach matching-period, dated original cash-flow statement amounts.
+    # Only CNY A-share cumulative lines; HK original currency is not presumed.
+    flows = cashflows or {}
+    if market == "A股":
+        for item in selected:
+            amount = _decimal(flows.get(item["报告期"]))
+            if item["币种"] == "CNY" and amount is not None:
+                item["指标"]["经营现金流净额"] = format(amount, "f")
     # A duplicated period can represent incompatible revisions. Never choose
     # the first arbitrarily; only publish a period when all copies agree.
     grouped = {}
@@ -125,7 +133,7 @@ def assemble_history(rows, latest, market):
     comparable = [x for x in points if _comparable(reference, x, market)]
     comparable = sorted(comparable, key=lambda x: x["报告期"], reverse=True)[:4]
     states = []
-    for field in ("收入", "归母净利润", "ROE", "资产负债率", "收入同比", "归母净利润同比"):
+    for field in ("收入", "归母净利润", "经营现金流净额", "ROE", "资产负债率", "收入同比", "归母净利润同比"):
         observed = [x for x in comparable if field in x["指标"]]
         if len(observed) >= 2:
             new, old = observed[0], observed[1]
