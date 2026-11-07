@@ -162,6 +162,39 @@ def build_research_brief(stock, finance, disclosure, as_of=None):
     if quality["缺口"]:
         coverage.append("待补证：" + "；".join(quality["缺口"]))
 
+    # Distinguish hypotheses from forecasts: choose evidence-specific
+    # scenarios instead of copying the same three generic paragraphs.
+    if revenue_yoy is None:
+        revenue_up = "后续披露提供可比营业收入同比，才能确认经营变化"
+        revenue_down = "若收入数据始终缺失，则不能建立收入驱动型研究逻辑"
+    elif revenue_yoy < 0:
+        revenue_up = "下期同口径营收同比降幅收窄或转增，并有披露支持"
+        revenue_down = "下期营收同比降幅扩大，原有增长论点应被反证"
+    elif revenue_yoy > 0:
+        revenue_up = "下期同口径营收同比保持改善，且解释具有持续证据"
+        revenue_down = "下期营收同比转弱，须重新评估增长持续性"
+    else:
+        revenue_up = "下期同口径营收同比转为改善"
+        revenue_down = "下期同口径营收同比转为下降"
+
+    if profit_yoy is None:
+        profit_check = "补齐归母利润绝对额与同比，先确定盈亏方向"
+    elif profit_yoy < 0:
+        profit_check = "归母净利润同比下降能否止跌，并核对绝对额盈亏方向"
+    else:
+        profit_check = "归母净利润同比变化能否延续，且绝对额盈亏口径一致"
+
+    if valuation.get("行业参考"):
+        valuation_check = "重新核验同供应商同标签PE/PB样本，排除盈利质量变化的影响"
+    else:
+        valuation_check = "行业估值样本仍不充分时不作同行高低判断"
+
+    scenarios = [
+        "改善假设：" + revenue_up + "；同时核验" + profit_check,
+        "维持假设：" + valuation_check + "；在新披露不足时只保留规则化市场观察",
+        "恶化假设：" + revenue_down + "；并关注公司官方风险公告能否证实变化",
+    ]
+
     return {
         "行情入选依据": "；".join(market_view),
         "财务变化线索": "；".join(change),
@@ -171,9 +204,5 @@ def build_research_brief(stock, finance, disclosure, as_of=None):
         "多期财务对照": historical,
         "估值与同业横截面": relative,
         "研究证据质量": quality,
-        "条件情景（非价格预测）": [
-            "改善：后续同口径营收、归母净利润趋势改善，且官方披露可以核实经营驱动；再重新评估增长持续性",
-            "维持：财务变化不明显、同行估值缺乏新证据；保留现有结论，不因短期排名上升就上调基本面判断",
-            "恶化：利润或收入同比进一步下降，或官方财报出现重大风险披露；需要重新审视原入选逻辑",
-        ],
+        "条件情景（非价格预测）": scenarios,
     }
