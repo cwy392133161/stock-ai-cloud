@@ -52,7 +52,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(output.count("<article>"), 10)
         self.assertIn("0/5 家公司取得指标", output)
         self.assertIn("2/3 家公司取得指标（完整 1，部分 1，无可用指标 1），产品不适用 2 只", output)
-        self.assertEqual(log.getvalue().count("::warning::"), 1)
+        # The research quality gate now warns on every short/unsupported
+        # mock AI analysis in addition to the market-level data outage.
+        self.assertEqual(log.getvalue().count("::warning::A股"), 1)
+        self.assertIn("AI研究正文可用内容较少", log.getvalue())
         self.assertIn("::warning::A股", log.getvalue())
         self.assertNotIn("test-only", log.getvalue())
 
