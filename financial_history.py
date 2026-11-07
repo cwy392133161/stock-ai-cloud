@@ -103,8 +103,16 @@ def assemble_history(rows, latest, market, cashflows=None):
     selected = []
     # datetime-backed _period has already been screened for publication timing.
     for _, frame_row in rows.sort_values("_period", ascending=False).iterrows():
+        # A period end is not a release date. If the provider has no notice or
+        # revision timestamp, do not claim this history was known as of the
+        # market snapshot. Upstream dated_rows already excludes future dates.
+        notice_date = _iso(frame_row.get("NOTICE_DATE"))
+        revision_date = _iso(frame_row.get("UPDATE_DATE"))
+        if not notice_date and not revision_date:
+            continue
         record = _financial_row(frame_row, market)
         if record:
+            record["披露时点依据"] = notice_date or revision_date
             selected.append(record)
     # Attach matching-period, dated original cash-flow statement amounts.
     # Only CNY A-share cumulative lines; HK original currency is not presumed.
