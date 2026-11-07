@@ -52,6 +52,11 @@ def model():
             "citation": "D1 p3",
             "quote": "公司财务费用增加主要系银行借款利息不再资本化",
         }],
+        "source_claims": [{
+            "citation": "D1 p3", "type": "经营原因",
+            "quote": "公司财务费用增加主要系银行借款利息不再资本化",
+            "claim": "公司财务费用增加主要系银行借款利息不再资本化",
+        }],
     }
 
 
@@ -100,7 +105,9 @@ class EvidenceGateTests(unittest.TestCase):
                                           brief, e["公告"])
         self.assertEqual(accepted["状态"], "解释性研究已通过基础发布门槛", accepted)
         self.assertEqual(len(accepted["原文短引"]), 1)
+        self.assertEqual(len(accepted["直接证据主张"]), 1)
         corrupted = model()
+        corrupted["source_claims"][0]["claim"] = "公司财务费用减少主要系借款利息下降"
         corrupted["source_quotes"][0]["quote"] = "不存在于原文的利好"
         rejected = assess_model_research(json.dumps(corrupted, ensure_ascii=False),
                                           brief, e["公告"])
