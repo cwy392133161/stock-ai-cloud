@@ -23,6 +23,46 @@ class ReportTests(unittest.TestCase):
         self.assertIn("币种待核实 &lt;未知&gt;", html)
         self.assertEqual(snapshot["指标"]["归母净利润"], "-1234567890123456789.0100 CNY（累计）")
 
+    def test_deepseek_retry_is_not_hard_capped_at_two_calls(self):
+        from unittest.mock import Mock
+        empty = Mock(status_code=200, headers={})
+        empty.json.return_value = {"choices": [
+            {"message": {"content": ""}, "finish_reason": "length"}
+        ], "usage": {"completion_tokens": 100}}
+        valid = Mock(status_code=200, headers={})
+        valid.json.return_value = {"choices": [
+            {"message": {"content": '{"sections": {}}'},
+             "finish_reason": "stop"}
+        ]}
+        with patch.object(ai_report.requests, "post",
+                          side_effect=[empty, empty, empty, valid]) as post, \
+             patch.object(ai_report.time, "sleep") as sleep:
+            text = ai_report.request_deepseek(
+                "https://example.invalid", "test-only", "test", "JSON",
+                retry_window_seconds=120
+            )
+        self.assertEqual(post.call_count, 4)
+        self.assertEqual(text, '{"sections": {}}')
+        self.assertEqual(sleep.call_count, 3)
+
+    def test_deepseek_respects_provider_retry_after(self):
+        from unittest.mock import Mock
+        rate_limit = Mock(status_code=429, headers={"Retry-After": "6"})
+        valid = Mock(status_code=200, headers={})
+        valid.json.return_value = {"choices": [
+            {"message": {"content": '{"ok":true}'}, "finish_reason": "stop"}
+        ]}
+        with patch.object(ai_report.requests, "post",
+                          side_effect=[rate_limit, valid]) as post, \
+             patch.object(ai_report.time, "sleep") as sleep:
+            out = ai_report.request_deepseek(
+                "https://example.invalid", "test-only", "test", "JSON",
+                retry_window_seconds=60
+            )
+        self.assertEqual(out, '{"ok":true}')
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(6.0)
+
     def test_products_do_not_trigger_outage(self):
         summary, outage = ai_report.finance_summary("港股", [{"状态": "公司财务分析不适用"}] * 5)
         self.assertFalse(outage)
