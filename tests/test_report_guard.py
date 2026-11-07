@@ -137,8 +137,9 @@ class ReportGuardTests(unittest.TestCase):
         self.assertIn("研究证据与反向核对", html)
         self.assertIn("下期验证清单", html)
         self.assertIn("来源覆盖情况", html)
-        self.assertIn("入选逻辑：排名较高", html)
-        self.assertIn("</p><p>", html)
+        self.assertIn("AI研判：未通过发布门槛", html)
+        self.assertNotIn("入选逻辑：排名较高", html)
+        self.assertIn("research-approved-count", html)
 
     def test_only_program_can_publish_comparison(self):
         rows = [("A股", {"代码": "000690", "名称": "宝新能源"},
