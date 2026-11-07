@@ -81,33 +81,58 @@ def cn_rows(code, start, end):
     raise ValueError("巨潮资讯公告超过单次分页上限，索引未查全")
 
 
-def hk_rows(code, start, end):
-    """Increase result window; fail closed at cap rather than assuming completeness.
+MAX_HK_QUERIES = 18
 
-    HKEX titleSearchServlet's rowRange is a result-limit parameter; its
-    pagination behavior differs from the mainland API. Until a stable paging
-    token is exposed, reaching the cap means an incomplete index.
+
+def hk_rows(code, start, end):
+    """Complete dated HKEX windows via bounded partitioning.
+
+    HKEX's legacy titleSearchServlet exposes a rowRange cap rather than
+    durable page cursors. When a window reaches the limit, bisect the date
+    interval; only mark it complete once every leaf is below the cap.
+    A single day with too many entries or excessive API queries is explicitly
+    unverified instead of silently truncating the company research.
     """
-    params = dict(stockId=directory("港股")[code], market="SEHK", searchType=0, lang="zh", category=0, documentType=-1,
-                  fromDate=start.strftime("%Y%m%d"), toDate=end.strftime("%Y%m%d"),
-                  sortDir=0, sortByOptions="DateTime", rowRange=HK_ROW_LIMIT,
-                  t1code=-2, t2Gcode=-2, t2code=-2)
-    data = read_json(HK + "/search/titleSearchServlet.do", query=params,
-                     referer=HK + "/search/titlesearch.xhtml?lang=zh")
-    rows = json.loads(data["result"]) if isinstance(data["result"], str) else data["result"]
-    if not isinstance(rows, list):
-        raise ValueError("港交所索引格式异常")
-    if len(rows) >= HK_ROW_LIMIT:
-        raise ValueError("港交所索引达到记录上限，本次窗口可能不完整")
     seen = set()
-    for row in rows:
-        if code in re.findall(r"(?<!\d)\d{5}(?!\d)", str(row["STOCK_CODE"])):
-            path = row["FILE_LINK"]
-            if path in seen:
-                continue
-            seen.add(path)
-            day = datetime.strptime(row["DATE_TIME"], "%d/%m/%Y %H:%M").date()
-            yield day, row["TITLE"], path
+    calls = 0
+    stock_id = directory("港股")[code]
+
+    def load(window_start, window_end):
+        nonlocal calls
+        calls += 1
+        if calls > MAX_HK_QUERIES:
+            raise ValueError("港交所索引拆分查询次数达到上限，未查全")
+        params = dict(stockId=stock_id, market="SEHK", searchType=0,
+                      lang="zh", category=0, documentType=-1,
+                      fromDate=window_start.strftime("%Y%m%d"),
+                      toDate=window_end.strftime("%Y%m%d"),
+                      sortDir=0, sortByOptions="DateTime",
+                      rowRange=HK_ROW_LIMIT, t1code=-2, t2Gcode=-2,
+                      t2code=-2)
+        data = read_json(HK + "/search/titleSearchServlet.do", query=params,
+                         referer=HK + "/search/titlesearch.xhtml?lang=zh")
+        rows = json.loads(data["result"]) if isinstance(data["result"], str) else data["result"]
+        if not isinstance(rows, list):
+            raise ValueError("港交所索引格式异常")
+        if len(rows) >= HK_ROW_LIMIT:
+            if window_start >= window_end:
+                raise ValueError("港交所单日公告数量达到结果上限，不能当作全量索引")
+            mid = window_start + (window_end - window_start) // 2
+            yield from load(window_start, mid)
+            yield from load(mid + timedelta(days=1), window_end)
+            return
+        for row in rows:
+            if code in re.findall(r"(?<!\d)\d{5}(?!\d)", str(row["STOCK_CODE"])):
+                path = row["FILE_LINK"]
+                if path in seen:
+                    continue
+                seen.add(path)
+                day = datetime.strptime(row["DATE_TIME"], "%d/%m/%Y %H:%M").date()
+                if window_start <= day <= window_end:
+                    yield day, row["TITLE"], path
+
+    yield from load(start, end)
+
 
 
 
