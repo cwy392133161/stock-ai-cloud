@@ -20,6 +20,7 @@ import time
 from html import escape as escape_html
 
 from market_quality import MarketDataQualityError, validate_market_data
+from peer_valuation import industry_benchmarks, safe_number
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -52,12 +53,12 @@ EM_COLS = {
     "f10": "量比", "f11": "5分钟涨跌", "f12": "代码", "f14": "名称",
     "f15": "最高", "f16": "最低", "f17": "今开", "f18": "昨收",
     "f20": "总市值", "f21": "流通市值", "f22": "涨速", "f23": "市净率",
-    "f24": "60日涨跌幅", "f25": "年初至今涨跌幅",
+    "f24": "60日涨跌幅", "f25": "年初至今涨跌幅", "f100": "行业",
 }
 EM_FIELDS = ",".join(["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
                       "f10", "f12", "f13", "f14", "f15", "f16", "f17", "f18",
                       "f20", "f21", "f23", "f24", "f25", "f22", "f11", "f62",
-                      "f128", "f136", "f115", "f152"])
+                      "f128", "f136", "f115", "f152", "f100"])
 EM_FS_A = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"   # 沪深京 A 股
 EM_FS_HK = "m:128 t:3,m:128 t:4,m:128 t:1,m:128 t:2"           # 港股
 EM_HOSTS_A = ["82", "7", "28", ""]    # 空字符串 = 不带数字的 push2.eastmoney.com
@@ -343,9 +344,13 @@ def risks(row):
     return "；".join(out) if out else "无明显异常信号"
 
 
-def pick_rows(d, market, n):
+def pick_rows(d, market, n, industry_reference=None):
     rows = []
+    industry_reference = industry_reference or {}
     for _, r in d.head(n).iterrows():
+        industry = (str(r.get("行业")).strip()
+                    if pd.notna(r.get("行业")) and str(r.get("行业")).strip()
+                    else None)
         rows.append({
             "代码": str(r.get("代码", "")),
             "名称": str(r.get("名称", r.get("代码", ""))),
@@ -356,6 +361,14 @@ def pick_rows(d, market, n):
             "活跃分": float(r["活跃分"]),
             "估值分": float(r["估值分"]),
             "换手率": float(r["换手率"]) if pd.notna(r.get("换手率")) else None,
+            # Keep quote valuation as structured AS-OF data, never extract a
+            # PE number from the explanatory ranking paragraph.
+            "市盈率-动态": safe_number(r.get("市盈率-动态")),
+            "市净率": safe_number(r.get("市净率")),
+            "60日涨跌幅": safe_number(r.get("60日涨跌幅")),
+            "年初至今涨跌幅": safe_number(r.get("年初至今涨跌幅")),
+            "行业": industry,
+            "行业估值参考": industry_reference.get(industry) if market == "A" else None,
             "成交额": fmt_money(r["成交额"], "元" if market == "A" else "港币"),
             "流通市值": fmt_money(r["流通市值"], "元" if market == "A" else "港币"),
             "入选原因": reasons(r, market),
@@ -434,7 +447,10 @@ def main():
             raise MarketDataQualityError(
                 f"{market_name} 前{TOP_N}名评分全部相同，疑似多因子评分退化；拒绝覆盖旧榜单"
             )
-    top_a = pick_rows(ranked_a, "A", TOP_N)
+    # Full eligible A-share universe provides a less cherry-picked valuation
+    # context than comparing only the top-ranked names. No extra network call.
+    sector_reference = industry_benchmarks(ranked_a)
+    top_a = pick_rows(ranked_a, "A", TOP_N, sector_reference)
     top_hk = pick_rows(ranked_hk, "HK", TOP_N)
     print(f"A 股候选 {len(df_a)} 只，入选 {len(top_a)} 只；港股候选 {len(df_hk)} 只，入选 {len(top_hk)} 只", flush=True)
     if len(top_a) != TOP_N or len(top_hk) != TOP_N:
