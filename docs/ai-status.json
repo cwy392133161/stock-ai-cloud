@@ -1,12 +1,12 @@
 {
-  "state": "limited",
-  "description": "本期有4/10只显示条件性研究，缺少可逐字核对的官方原文主张",
+  "state": "partial",
+  "description": "本期研究已更新，1/10只有逐字证据研究，另有5只条件性研究",
   "snapshot": "2026-11-06 23:25",
   "report_snapshot": "2026-11-06 23:25",
   "ai_step": "success",
   "market_state": "not_rechecked",
-  "research_approved": 0,
-  "research_limited": 4,
+  "research_approved": 1,
+  "research_limited": 5,
   "research_total": 10,
-  "recorded_utc": "2026-11-08T00:14:50+00:00"
+  "recorded_utc": "2026-11-08T08:27:14+00:00"
 }
