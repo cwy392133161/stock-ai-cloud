@@ -273,15 +273,22 @@ def review_research_hypotheses(text):
                 OVERCONFIDENT.search(cleaned) or CITATION.search(cleaned) or
                 EVENT_ASSERTION.search(cleaned)
             )
-            conditional = bool(HYPOTHETICAL_MARKER.search(cleaned))
-            if UNSUPPORTED_OPERATING_FACT.search(cleaned) and not conditional:
-                blocked = True
-            if FIRM_FACT_MARKER.search(cleaned) and not conditional:
-                blocked = True
-            if FINANCIAL_DIRECTION.search(cleaned) and not conditional:
-                blocked = True
-            if RISKY_RELATIVE_ASSERTION.search(cleaned) and not conditional:
-                blocked = True
+            # A hedge AFTER an unsupported factual assertion does not
+            # retroactively convert it into a hypothesis. For instance,
+            # "公司订单持续增长，但仍需关注风险" states an unverified
+            # fact even though the final clause is cautious.
+            def qualified_before(start):
+                prior = cleaned[:start]
+                return bool(re.search(
+                    r"(?:若|如果|假设|倘若|是否|能否|未来|下期|下一期|"
+                    r"待核实|待验证|需要核验|需要确认|不能证明|无法认定)"
+                    r".{0,55}$", prior
+                ))
+            for rule in (UNSUPPORTED_OPERATING_FACT, FIRM_FACT_MARKER,
+                         FINANCIAL_DIRECTION, RISKY_RELATIVE_ASSERTION):
+                match = rule.search(cleaned)
+                if match and not qualified_before(match.start()):
+                    blocked = True
             if blocked:
                 removed += 1
                 continue
