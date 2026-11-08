@@ -521,7 +521,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
                                  '" rel="noopener noreferrer" target="_blank">' +
                                  esc(report.get("标题", "打开官方财报 PDF")) + '</a></div>')
                 parts.append('</section>')
-            parts.append('<details class="source-docs"><summary>展开近期官方公告与PDF证据</summary><small>' + esc(evidence["来源"]) +
+            parts.append('<details class="source-docs"><summary>展开官方公告与PDF证据（含历史财报）</summary><small>' + esc(evidence["来源"]) +
                          ' · 近期索引 ' + esc(evidence["查询期间"]) +
                          ' · ' + esc(evidence["状态"]) + '</small>')
             for notice in evidence["公告"]:
@@ -738,10 +738,10 @@ def main():
             '"反面证据":"70到110个汉字，挑战入选逻辑",'
             '"跟踪条件":"70到110个汉字，给出未来可证伪的问题"},'
             '"source_quotes":[], "source_claims":[]}。'
-            "若引用PDF，请仅在source_quotes和source_claims中填入可逐字复制的连续原句。"
+            "若引用PDF，请仅在source_quotes和source_claims中填入可逐字复制的完整原句，不得在逗号处截断或删去前后否定和条件。"
             "source_claims元素格式为"
             '{"citation":"D1 p3","type":"直接披露","quote":"从所标PDF页面摘录中逐字复制的短句",'
-            '"claim":"quote中连续的同义字原文子句"}；'
+            '"claim":"必须与quote逐字一致，不得删去否定或条件"}；'
             "type为经营原因时，claim原文必须出现明确的因果关系用词。"
             "若未找到逐字可核验的经营事实，则两个引用数组必须留空；"
             "不得把公告标题当成正文。"
@@ -771,3 +771,4 @@ def main():
     print("AI 报告生成完成，股票数：",len(output))
 if __name__ == "__main__":
     main()
+

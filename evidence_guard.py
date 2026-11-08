@@ -24,6 +24,45 @@ def _normalized(text):
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", html.unescape(str(text))))
 
 
+def _bounded_excerpt(quote, passage):
+    """Reject cuts through words/clauses, including dropped negation prefixes.
+
+    Whitespace may differ in PDF extraction, but is not a semantic boundary:
+    a line wrap must not turn "未\n确认" into a positive assertion.
+    """
+    whole = _normalized(passage)
+
+    def boundary(index, *, start=False):
+        char = whole[index]
+        if char in ("。！？!?；;:：" if start else "。！？!?；;"):
+            return True
+        # An English full stop is a sentence boundary, not a decimal point.
+        return char == "." and not (
+            index > 0 and index + 1 < len(whole)
+            and whole[index - 1].isdigit() and whole[index + 1].isdigit())
+
+    for match in re.finditer(re.escape(quote), whole):
+        begins = match.start() == 0 or boundary(match.start() - 1, start=True)
+        # Accept a complete sentence with or without its terminal punctuation.
+        # Commas/colons are not terminal: a following qualification may reverse
+        # the apparent meaning of the prefix.
+        ends = (match.end() == len(whole) or boundary(match.end())
+                or boundary(match.end() - 1))
+        if begins and ends:
+            return True
+    return False
+
+
+def _needs_numeric_context(quote):
+    # Bare table values and currency-prefix notation are quantities too.
+    # Requiring context for any digit is deliberately conservative; a date-only
+    # quote can be omitted rather than certifying an ambiguous numerical row.
+    normalized = _normalized(quote)
+    return bool(re.search(r"[0-9]", normalized) or FINANCIAL_QUANTITY.search(normalized)
+                or re.search(r"[零〇一二两兩三四五六七八九十百千万萬亿億]+"
+                             r"(?:元|港元|美元|倍|%|％)", normalized))
+
+
 def decode_report(content):
     """Expect four meaningful sections and a list of optional exact quotes."""
     if not isinstance(content, str):
@@ -63,6 +102,8 @@ def validate_source_quote(entry, notices):
         return None
     quote = quote.strip()
     canonical = _normalized(quote)
+    if EXTERNAL_INSTRUCTION.search(quote):
+        return None
     if not (8 <= len(canonical) <= 180):
         return None
     for notice in notices:
@@ -72,14 +113,14 @@ def validate_source_quote(entry, notices):
             if str(page.get("页")) != match[2]:
                 continue
             raw = _normalized(page.get("摘录", ""))
-            if canonical not in raw:
+            if not _bounded_excerpt(canonical, raw):
                 continue
             # The original PDF may omit table units. The model may quote a
             # numeric row only if table headers and comparable period are present.
-            if FINANCIAL_QUANTITY.search(quote):
-                if any(page.get(k, "未定位") in (None, "", "未定位")
+            if _needs_numeric_context(quote):
+                if any(not isinstance(page.get(k), str) or page[k].strip() in ("", "未定位")
                        for k in ("单位", "表头", "期间上下文")):
-                    return None
+                    continue
             return {
                 "原文短引": quote,
                 "引用": ref.strip(),
@@ -104,7 +145,7 @@ def validate_source_claim(entry, notices):
     """Publish a disclosure claim ONLY as a direct quotation, not a paraphrase.
 
     A title/link/valid page number cannot establish entailment. Requiring the
-    actual claim text to occur inside the quote, and the quote on the cited
+    actual claim text to equal the quote, and a bounded quote on the cited
     page, prevents contradiction-by-paraphrase and wrong-page sourcing. We
     cannot certify financial meaning automatically; higher-order inference
     stays in an explicitly hypothetical section.
@@ -117,7 +158,7 @@ def validate_source_claim(entry, notices):
         return None
     exact = _normalized(label)
     whole = _normalized(quote)
-    if not 8 <= len(exact) <= 150 or not exact in whole:
+    if not 8 <= len(exact) <= 150 or exact != whole:
         return None
     if EXTERNAL_INSTRUCTION.search(label) or EXTERNAL_INSTRUCTION.search(quote):
         return None
@@ -133,7 +174,7 @@ def validate_source_claim(entry, notices):
         **source,
         "主张原文": label,
         "主张类别": typ,
-        "证据校验": "主张为官方摘录逐字子串，未采用AI改写；仍需人工复核原文语境",
+        "证据校验": "主张与核对后的原文短引逐字一致，未采用AI改写；仍需人工复核原文语境",
     }
 
 
@@ -157,3 +198,4 @@ def verified_quotes(entries, notices):
             kept.append(matched)
             seen.add((matched["引用"], matched["原文短引"]))
     return kept
+

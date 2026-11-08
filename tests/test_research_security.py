@@ -50,12 +50,12 @@ def model():
         },
         "source_quotes": [{
             "citation": "D1 p3",
-            "quote": "公司财务费用增加主要系银行借款利息不再资本化",
+            "quote": "公司财务费用增加主要系银行借款利息不再资本化，后续仍需持续关注融资成本变化。",
         }],
         "source_claims": [{
             "citation": "D1 p3", "type": "经营原因",
-            "quote": "公司财务费用增加主要系银行借款利息不再资本化",
-            "claim": "公司财务费用增加主要系银行借款利息不再资本化",
+            "quote": "公司财务费用增加主要系银行借款利息不再资本化，后续仍需持续关注融资成本变化。",
+            "claim": "公司财务费用增加主要系银行借款利息不再资本化，后续仍需持续关注融资成本变化。",
         }],
     }
 
@@ -256,3 +256,4 @@ class EvidenceGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

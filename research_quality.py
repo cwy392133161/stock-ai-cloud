@@ -4,22 +4,18 @@ A PDF link is not a verified financial figure, a citation tag is not proof
 that a sentence is entailed by a passage, and a peer PE median is not a DCF.
 """
 from datetime import date
+from period_reports import matched_report_notices, period_title_score
 
 
 def evidence_quality(finance, disclosure, valuation, snapshot_date):
     evidence = disclosure or {}
     history = finance.get("历史财务") or {}
     periods = history.get("可比同季度年度数", 0)
-    matched = (evidence.get("对应报告期财报") or {}).get("报告期")
-    linked = [
-        n for n in evidence.get("公告", [])
-        if n.get("报告期匹配") == matched and matched == finance.get("报告期")
-    ]
+    linked = matched_report_notices(evidence, finance.get("报告期"))
     pages = [p for n in linked for p in n.get("正文摘录", [])]
     usable_table = sum(
-        p.get("单位", "未定位") != "未定位" and
-        p.get("表头", "未定位") != "未定位" and
-        p.get("期间上下文", "未定位") != "未定位"
+        all(isinstance(p.get(k), str) and p[k].strip() not in ("", "未定位")
+            for k in ("单位", "表头", "期间上下文"))
         for p in pages
     )
     current = bool(finance.get("指标")) and finance.get("状态") in ("可用", "部分可用")
@@ -45,7 +41,9 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
             # The exact latest financial period being released before the
             # snapshot must be supported by an independent official index.
             report = evidence.get("对应报告期财报") or {}
-            if report.get("报告期") != current_period or not report.get("公告日期"):
+            if (report.get("报告期") != current_period or not report.get("公告日期")
+                    or max(period_title_score(report.get("标题", ""), current_period, market)
+                           for market in ("港股", "A股")) <= 0):
                 not_future = False
             else:
                 not_future = not_future and date.fromisoformat(str(report["公告日期"])[:10]) <= snapshot
@@ -86,3 +84,4 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
         "说明": ("覆盖度是研究资料质量，不是盈利预测、个股评级、专业审计或绝对可靠性保证；"
                 "若无同报告期PDF全文与可审计同行数据，应明确承认结论边界。"),
     }
+

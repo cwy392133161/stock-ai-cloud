@@ -1,6 +1,6 @@
 """Recent official filing titles and document links, anchored to the snapshot date."""
 from filing_text import IMPORTANT
-from period_reports import filing_search_windows, period_title_score
+from period_reports import filing_search_windows, period_title_score, filing_kind
 
 import html
 import json
@@ -177,6 +177,7 @@ def fetch_disclosures(market, code, as_of, report_period=None):
     except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
         result["状态"] = f"公告查询未核实（{type(exc).__name__}）"
 
+    result["近期公告数量"] = len(recent)
     ranked = sorted(recent.values(),
                     key=lambda n: (bool(IMPORTANT.search(n["标题"])), n["日期"]),
                     reverse=True)
@@ -194,7 +195,7 @@ def fetch_disclosures(market, code, as_of, report_period=None):
                     score = period_title_score(item["标题"], report_period, market)
                     if score > best_score:
                         best, best_score = item, score
-                if best_score < 60:
+                if best_score < 100:
                     for window_start, window_end in windows:
                         for day, title, path in _market_rows(market, code, window_start, window_end):
                             item = _valid_notice(day, title, path, market, window_start, window_end)
@@ -203,27 +204,29 @@ def fetch_disclosures(market, code, as_of, report_period=None):
                             score = period_title_score(item["标题"], report_period, market)
                             if score > best_score:
                                 best, best_score = item, score
-                        if best_score >= 60:
+                        if best_score >= 100:
                             break
-                if best and best_score >= 60:
+                if best and best_score >= 100:
                     report.update({"状态": "完整财报标题与报告期匹配，PDF正文待核验",
                                    "公告日期": best["日期"], "标题": best["标题"],
-                                   "链接": best["链接"]})
-                    matched = {**best, "报告期匹配": report_period}
+                                   "链接": best["链接"], "文档类型": filing_kind(best["标题"])})
+                    matched = {**best, "报告期匹配": report_period, "文档类型": "full_report"}
                     # Reserve D1 for the fiscal report, leaving at most two
                     # recent announcements. Total PDF budget is unchanged.
                     ranked = [matched] + [item for item in ranked if item["链接"] != best["链接"]][:2]
                 elif best:
                     report.update({"状态": "仅找到对应期间业绩公告，尚未取得完整财报",
                                    "公告日期": best["日期"], "标题": best["标题"],
-                                   "链接": best["链接"]})
+                                   "链接": best["链接"], "文档类型": filing_kind(best["标题"])})
         except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
             report["状态"] = f"对应报告期财报检索未核实（{type(exc).__name__}）"
             # Preserve a previously matched report if later search fails.
-            if best and best_score >= 60:
-                report.update({"公告日期": best["日期"], "标题": best["标题"], "链接": best["链接"]})
-                ranked = [{**best, "报告期匹配": report_period}] + [
+            if best and best_score >= 100:
+                report.update({"公告日期": best["日期"], "标题": best["标题"], "链接": best["链接"], "文档类型": filing_kind(best["标题"])})
+                ranked = [{**best, "报告期匹配": report_period, "文档类型": "full_report"}] + [
                     item for item in ranked if item["链接"] != best["链接"]][:2]
         result["对应报告期财报"] = report
     result["公告"] = ranked[:3]
+    result["历史财报数量"] = sum(n["日期"] < start.isoformat() for n in result["公告"])
     return result
+

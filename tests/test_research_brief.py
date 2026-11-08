@@ -41,6 +41,7 @@ class ResearchBriefTests(unittest.TestCase):
                 "报告期": "2026-09-30", "状态": "标题与报告期匹配，PDF正文待核验",
             },
             "公告": [{
+                "标题": "2026年第三季度报告",
                 "报告期匹配": "2026-09-30",
                 "正文摘录": [
                     {"页": 2, "摘录": "营业总收入", "表头": "未定位",
@@ -75,3 +76,4 @@ class ResearchBriefTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
