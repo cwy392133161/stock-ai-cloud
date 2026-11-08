@@ -23,6 +23,44 @@ class ReportTests(unittest.TestCase):
         self.assertIn("币种待核实 &lt;未知&gt;", html)
         self.assertEqual(snapshot["指标"]["归母净利润"], "-1234567890123456789.0100 CNY（累计）")
 
+    def test_flash_json_output_budget_and_first_call_non_thinking(self):
+        from unittest.mock import Mock
+        valid = Mock(status_code=200, headers={})
+        valid.json.return_value = {"choices": [
+            {"message": {"content": '{"sections": {}}'}, "finish_reason": "stop"}
+        ]}
+        with patch.object(ai_report.requests, "post", return_value=valid) as call:
+            ai_report.request_deepseek(
+                "https://example.invalid", "test-only", "deepseek-flash",
+                "只输出JSON对象", retry_window_seconds=60)
+        args = call.call_args.kwargs["json"]
+        self.assertEqual(args["thinking"], {"type": "disabled"})
+        self.assertEqual(args["max_tokens"], 4800)
+        self.assertEqual(args["response_format"], {"type": "json_object"})
+
+    def test_compact_research_inputs_keep_period_and_pdf_quotes_but_drop_bulk(self):
+        stock = {"名称": "样本", "代码": "000690", "评分": 80}
+        history = {"同口径年度对照": [{"指标": "收入", "本期": str(i)}
+                                     for i in range(16)]}
+        finance = {"状态": "可用", "报告期": "2026-09-30",
+                   "披露日期": "2026-10-30",
+                   "指标": {"营业收入同比": "-5 %（累计同比）"},
+                   "历史财务": history}
+        docs = {"公告": [{"编号": "D1", "日期": "2026-10-30",
+                        "链接": "https://example.com/filing.pdf",
+                        "正文摘录": [{"页": 6, "摘录": "A"*1000,
+                                      "单位": "CNY", "表头": "收入"}]}]}
+        data = ai_report.compact_research_inputs(
+            "A股", stock, finance,
+            {"聚焦问题": {"研究主题": "增收不增利"},
+             "估值与同业横截面": ["尚无完整同行资料"]},
+            docs, "", "2026-11-06 23:25"
+        )
+        self.assertEqual(len(data["财务"]["同报告季跨年对比"]), 6)
+        self.assertEqual(len(data["公告"][0]["正文摘录"][0]["摘录"]), 460)
+        self.assertEqual(data["公告"][0]["正文摘录"][0]["页"], 6)
+        self.assertEqual(data["行情快照"], "2026-11-06 23:25")
+
     def test_deepseek_retry_is_not_hard_capped_at_two_calls(self):
         from unittest.mock import Mock
         empty = Mock(status_code=200, headers={})
