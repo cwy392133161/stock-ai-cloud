@@ -381,17 +381,21 @@ def render_assessed_research(assessment):
         if paragraph:
             parts.append("<p><b>" + esc(label) + "</b><br>" +
                          esc(paragraph) + "</p>")
-    parts.append('<details><summary>展开原文主张逐字核验（' +
-                 str(len(assessment["直接证据主张"])) + '条）</summary>')
-    for fact in assessment["直接证据主张"]:
-        parts.append('<blockquote><b>' + esc(fact["主张类别"]) +
-                     '（逐字摘录）：</b>' + esc(fact["主张原文"]) +
-                     '<p><small>对应PDF原句：' + esc(fact["原文短引"]) + '</small></p>' +
-                     ' <a rel="noopener noreferrer" target="_blank" href="' +
-                     esc(fact["官方PDF"]) + '">' + esc(fact["引用"]) +
-                     '</a><small> · 单位：' + esc(fact["单位"]) +
-                     '；期间：' + esc(fact["期间"]) + '</small></blockquote>')
-    parts.append('<small>仅允许与PDF逐字一致的事实主张；模型其他段落属于待验证的研究假设，不自动认证经营因果或未来表现。</small></details></section>')
+    if assessment["直接证据主张"]:
+        parts.append('<details><summary>展开原文主张逐字核验（' +
+                     str(len(assessment["直接证据主张"])) + '条）</summary>')
+        for fact in assessment["直接证据主张"]:
+            parts.append('<blockquote><b>' + esc(fact["主张类别"]) +
+                         '（逐字摘录）：</b>' + esc(fact["主张原文"]) +
+                         '<p><small>对应PDF原句：' + esc(fact["原文短引"]) + '</small></p>' +
+                         ' <a rel="noopener noreferrer" target="_blank" href="' +
+                         esc(fact["官方PDF"]) + '">' + esc(fact["引用"]) +
+                         '</a><small> · 单位：' + esc(fact["单位"]) +
+                         '；期间：' + esc(fact["期间"]) + '</small></blockquote>')
+        parts.append('<small>仅证明PDF位置与文字匹配，不自动证明AI解释的因果关系。</small></details>')
+    else:
+        parts.append('<small>本期无通过逐字核验的公司事实主张；正文仅为条件性研究问题。</small>')
+    parts.append('<small>模型推断不自动构成事实、投资评级或未来收益预测。</small></section>')
     return "".join(parts)
 
 
