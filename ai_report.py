@@ -281,7 +281,9 @@ def review_research_hypotheses(text):
                 prior = cleaned[:start]
                 return bool(re.search(
                     r"(?:若|如果|假设|倘若|是否|能否|未来|下期|下一期|"
-                    r"待核实|待验证|需要核验|需要确认|不能证明|无法认定)"
+                    r"待核实|待验证|需要核验|需要确认|不能证明|无法认定|"
+                    r"不能说明|不足以说明|无法证明|不代表|不意味着|并不意味着|"
+                    r"不应推断|不能推断|不能认定)"
                     r".{0,55}$", prior
                 ))
             for rule in (UNSUPPORTED_OPERATING_FACT, FIRM_FACT_MARKER,
