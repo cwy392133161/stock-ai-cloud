@@ -111,8 +111,42 @@ class EvidenceGateTests(unittest.TestCase):
         corrupted["source_quotes"][0]["quote"] = "不存在于原文的利好"
         rejected = assess_model_research(json.dumps(corrupted, ensure_ascii=False),
                                           brief, e["公告"])
-        self.assertEqual(rejected["状态"], "仅发布可核对事实")
-        self.assertFalse(rejected["章节"])
+        # A fabricated source quote must never appear as a verified claim.
+        # Independent conditional analysis may still be displayed with a
+        # lower grade, provided it contains no unverified factual claims.
+        self.assertEqual(rejected["状态"], "条件性研究（原文事实证据不足）")
+        self.assertFalse(rejected["直接证据主张"])
+        self.assertTrue(rejected["章节"])
+
+    def test_missing_pdf_claims_preserve_safe_conditional_thinking(self):
+        from ai_report import review_research_hypotheses
+        e, f = source(), financial()
+        brief = build_research_brief({"代码": "000690"}, f, e, "2026-11-06 23:25")
+        raw = model()
+        raw["source_claims"] = []
+        raw["source_quotes"] = []
+        raw["sections"]["反面证据"] += "公司核心产品市场份额持续提升。"
+        result = assess_model_research(json.dumps(raw, ensure_ascii=False),
+                                       brief, e["公告"])
+        self.assertEqual(result["状态"], "条件性研究（原文事实证据不足）")
+        self.assertFalse(result["直接证据主张"])
+        self.assertNotIn("市场份额持续提升", result["章节"]["反面证据"])
+        conditional, removed = review_research_hypotheses(
+            "下期应核验归母净利润是否改善。公司已实现利润翻番。")
+        self.assertIn("应核验", conditional)
+        self.assertNotIn("已实现利润翻番", conditional)
+        self.assertGreaterEqual(removed, 1)
+
+    def test_conditional_research_still_requires_valid_snapshot_financials(self):
+        e, f = source(), financial()
+        raw = model()
+        raw["source_claims"] = []
+        f["披露日期"] = "2026-11-09"
+        brief = build_research_brief({"代码": "000690"}, f, e, "2026-11-06")
+        result = assess_model_research(json.dumps(raw, ensure_ascii=False),
+                                       brief, e["公告"])
+        self.assertEqual(result["状态"], "仅发布可核对事实")
+        self.assertFalse(result["章节"])
 
     def test_unsupported_operating_achievements_filtered_without_numbers(self):
         for claim in (
