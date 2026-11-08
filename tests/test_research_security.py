@@ -157,6 +157,47 @@ class EvidenceGateTests(unittest.TestCase):
         self.assertIn("如果未来订单增长", out)
         self.assertGreaterEqual(removed, 1)
 
+    def test_high_discard_rate_keeps_only_safe_remaining_research(self):
+        brief = build_research_brief({"代码":"000690"}, financial(),
+                                      source(), "2026-11-06 23:25")
+        report = model()
+        report["source_claims"] = []
+        report["source_quotes"] = []
+        report["sections"] = {
+            "入选逻辑": "公司核心产品市场份额持续提升。" * 15,
+            "经营和估值": (
+                "如果收入和利润方向存在差异，需要进一步核验财务费用及经营现金流的变化原因，"
+                "不能把短期股价上行直接当作长期增长的证据。"),
+            "反面证据": (
+                "行情的成交活跃度未必与后续经营改善同步，若新一期业绩无法支持当前逻辑，"
+                "应重新判断估值与风险，不能凭单次行情确认竞争优势。"),
+            "跟踪条件": "公司已收到大额订单。" * 12,
+        }
+        result = assess_model_research(json.dumps(report, ensure_ascii=False),
+                                       brief, source()["公告"])
+        self.assertEqual(result["状态"], "部分条件性研究（仅展示审核后段落）",
+                         result)
+        self.assertLess(result["可用字数"] / result["原始字数"], 0.40)
+        self.assertIn("经营和估值", result["章节"])
+        self.assertIn("反面证据", result["章节"])
+        self.assertNotIn("大额订单", str(result["章节"]))
+        self.assertNotIn("市场份额持续提升", str(result["章节"]))
+
+    def test_high_discard_with_one_surviving_section_still_fails(self):
+        brief = build_research_brief({"代码":"000690"}, financial(),
+                                      source(), "2026-11-06 23:25")
+        report = model()
+        report["sections"] = {
+            "入选逻辑": "公司核心产品市场份额持续提升。" * 12,
+            "经营和估值": "公司在手订单已经显著增长。" * 12,
+            "反面证据": "公司已经确认市场优势。" * 12,
+            "跟踪条件": ("如果新一季财务报表披露更多证据，应核对营业收入的口径和期间。"
+                         "需要确认财报原文可以支撑研究结论，才能进一步讨论可持续性。"),
+        }
+        result = assess_model_research(json.dumps(report, ensure_ascii=False),
+                                       brief, source()["公告"])
+        self.assertEqual(result["状态"], "仅发布可核对事实")
+
     def test_unsupported_operating_achievements_filtered_without_numbers(self):
         for claim in (
             "公司核心产品市场份额持续上升。",
