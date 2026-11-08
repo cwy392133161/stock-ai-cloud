@@ -177,6 +177,19 @@ class EvidenceGateTests(unittest.TestCase):
         status = assess_model_research("公司获利明显增加！", brief, e["公告"])
         self.assertEqual(status["状态"], "仅发布可核对事实")
 
+    def test_website_labels_unquoted_research_as_limited_not_verified(self):
+        report = (
+            '<small>行情快照：2026-11-06 23:25</small>'
+            '<meta name="research-approved-count" content="0">'
+            '<meta name="research-limited-count" content="7">'
+            '<meta name="research-total-count" content="10">'
+        )
+        status = research_freshness(
+            {"updated": "2026-11-06 23:25"}, report, True, "success")
+        self.assertEqual(status["state"], "limited")
+        self.assertEqual(status["research_limited"], 7)
+        self.assertIn("7/10", status["description"])
+
     def test_publication_distinguishes_stale_factual_and_partial(self):
         index = '<h1>榜单</h1><p class="ai-nav">旧AI链接</p>'
         report = ('<small>行情快照：2026-11-06 23:25</small>'
