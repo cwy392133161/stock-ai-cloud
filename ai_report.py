@@ -218,56 +218,160 @@ def cited_narrative(content, notices):
 
 
 
-def assess_model_research(content, brief, notices):
-    """Hard gate: unsupported AI conclusions become a factual-only dossier.
+# The traditional quote validator remains strict for disclosure-derived FACTS.
+# In contrast, a question or conditional scenario about *already sourced*
+# financial figures is legitimate research; suppressing every mention of
+# profit or cash flow previously made all ten reports fail the gate.
+HYPOTHETICAL_MARKER = re.compile(
+    r"如果|假如|若|是否|能否|可能|需要|应当|应该|应|须|待|"
+    r"核验|核对|验证|检验|观察|关注|跟踪|有待|尚需|"
+    r"不能|无法|不足以|不代表|并不|不应|需防范|"
+    r"取决于|风险|假设|前提|未必|难以|警惕"
+)
+FIRM_FACT_MARKER = re.compile(
+    r"(?:公司|集团|企业|管理层|发行人|本期|当期)"
+    r".{0,16}(?:已实现|实现了|已经|获得了|成功|确定|确认|持续增长|"
+    r"大幅增长|明显改善|营收增长|利润增长|利润下降|转亏|扭亏)|"
+    r"(?:经营现金流|现金流|归母净利润|主营收入|营业收入|营收|毛利率)"
+    r".{0,10}(?:已|实现|持续|同比增长|同比下降|明显增长|明显下降|"
+    r"大幅增加|显著提升|转正|转负|创新高)"
+)
+FINANCIAL_DIRECTION = re.compile(
+    r"(?:利润|净利|归母|盈利|营收|收入|现金流|ROE|资产负债率)"
+    r".{0,10}(?:同比下降|同比增长|持续改善|已改善|下滑|回升|"
+    r"增长|下降|高于|低于|领先|落后|为正|为负)"
+    r"|(?:同比下降|同比增长|持续改善|增长|下降|回升|下滑)"
+    r".{0,10}(?:利润|净利|归母|营收|收入|现金流|ROE)"
+)
+RISKY_RELATIVE_ASSERTION = re.compile(
+    r"(?:已经|已|目前|当期|本期).{0,14}"
+    r"(?:优于|跑赢|领先|落后|高于|低于|超过|大于|小于)"
+    r".{0,10}(?:同行|行业|利润|营收|现金流)"
+)
 
-    This is stronger than warning-only thresholds but cannot verify semantic
-    entailment. Any model-picked company disclosure is shown as a verbatim
-    quote with a matching PDF page, never as an AI-certified paraphrase.
+
+def review_research_hypotheses(text):
+    """Keep conditional, falsifiable interpretation; reject unsupported facts.
+
+    Company-specific disclosed events and quantities must go through the
+    separately verified PDF literal-claim channel. This text gate doesn't
+    infer any factual truth from a fluent model sentence.
+    """
+    kept, removed = [], 0
+    for paragraph in str(text or "").splitlines():
+        if not paragraph.strip():
+            continue
+        for sentence in re.findall(r"[^。！？!?；;]+[。！？!?；;]?", paragraph):
+            cleaned = unicodedata.normalize("NFKC", sentence).strip()
+            if not cleaned:
+                continue
+            # No model-originated numbers, uncited events, targets or claims
+            # that merely attach a page reference without a checked literal.
+            blocked = bool(
+                UNVERIFIED_QUANTITY.search(cleaned) or
+                CHINESE_QUANTITY.search(cleaned) or
+                OVERCONFIDENT.search(cleaned) or CITATION.search(cleaned) or
+                EVENT_ASSERTION.search(cleaned)
+            )
+            conditional = bool(HYPOTHETICAL_MARKER.search(cleaned))
+            if UNSUPPORTED_OPERATING_FACT.search(cleaned) and not conditional:
+                blocked = True
+            if FIRM_FACT_MARKER.search(cleaned) and not conditional:
+                blocked = True
+            if FINANCIAL_DIRECTION.search(cleaned) and not conditional:
+                blocked = True
+            if RISKY_RELATIVE_ASSERTION.search(cleaned) and not conditional:
+                blocked = True
+            if blocked:
+                removed += 1
+                continue
+            kept.append(sentence.strip())
+    return "".join(kept).strip(), removed
+
+
+def assess_model_research(content, brief, notices):
+    """Three honest outcomes: verified claims, qualified hypotheses, facts only.
+
+    PDF literal claims remain mandatory for the 'verified excerpts' tier.
+    Falsifiable research questions that make no unsupported factual assertions
+    may appear as *conditional*, if current financial data and time bases are
+    trustworthy. Unsupported facts are never made true by a lenient word count.
     """
     parsed = decode_report(content)
     quality = brief["研究证据质量"]
     result = {"状态": "仅发布可核对事实", "原因": [], "章节": {},
-              "原文短引": [], "可用字数": 0}
+              "原文短引": [], "直接证据主张": [], "可用字数": 0,
+              "各章节保留字数": {}, "丢弃句数": 0}
     if parsed is None:
-        result["原因"].append("AI未输出符合约定的四章节JSON，禁止发布自由文本")
+        result["原因"].append("AI未输出符合约定的四章节JSON")
         return result
-    sections = {key: review_narrative(parsed["sections"][key], {}) for key in SECTIONS}
+
+    sanitized = {key: review_research_hypotheses(parsed["sections"][key])
+                 for key in SECTIONS}
+    sections = {key: pair[0] for key, pair in sanitized.items()}
+    removed_sentences = sum(pair[1] for pair in sanitized.values())
     quotes = verified_quotes(parsed["source_quotes"], notices)
     claims = verified_claims(parsed.get("source_claims"), notices)
     original = sum(len(parsed["sections"][key].strip()) for key in SECTIONS)
     kept = sum(len(sections[key]) for key in SECTIONS)
-    result.update({"可用字数": kept, "引用候选数": len(parsed["source_quotes"]),
-                   "已核对原文短引数": len(quotes),
-                   "逐字证据主张数": len(claims),
-                   "各章节保留字数": {key: len(sections[key].strip()) for key in SECTIONS}})
-    if "行情快照日期已确认" not in quality["通过项"] or "财务与公告未晚于行情快照" not in quality["通过项"]:
-        result["原因"].append("行情与资料的真实截止日期未通过检查")
-    if "当前财务指标" not in quality["通过项"]:
-        result["原因"].append("没有已确认同快照期的可用财务指标")
-    if not claims:
-        result["原因"].append("缺少同时匹配官方PDF页码和原文措辞的直接证据主张")
-    if not all(len(sections[key].strip()) >= 24 for key in SECTIONS):
-        result["原因"].append("四个研究章节未通过有效内容长度检查")
-    if kept < 160 or (original and kept / original < 0.65):
-        result["原因"].append("AI分析被安全审核删除过多，剩余内容不足以形成研究")
+    valid_sections = sum(len(sections[key].strip()) >= 20 for key in SECTIONS)
+    result.update({
+        "可用字数": kept, "原始字数": original,
+        "引用候选数": len(parsed["source_quotes"]),
+        "已核对原文短引数": len(quotes),
+        "逐字证据主张数": len(claims),
+        "各章节保留字数": {key: len(sections[key]) for key in SECTIONS},
+        "丢弃句数": removed_sentences,
+    })
+    passed = quality.get("通过项", [])
+    if ("行情快照日期已确认" not in passed or
+        "财务与公告未晚于行情快照" not in passed):
+        result["原因"].append("行情与财务资料的真实截止日期未通过核对")
+    if "当前财务指标" not in passed:
+        result["原因"].append("没有可核实的同快照期财务指标")
+    # Permit limited research with 3 strong sections and one short one. Never
+    # silently replace absent AI text with invented boilerplate.
+    if valid_sections < 3 or kept < 120:
+        result["原因"].append("可用研究章节不足，不能形成完整分析")
+    if original and kept / original < 0.40:
+        result["原因"].append("未经证实的论断比例过高，研究文本大部分被过滤")
+
     if result["原因"]:
         return result
-    result.update({"状态": "解释性研究已通过基础发布门槛",
-                   "章节": sections, "原文短引": quotes,
-                   "直接证据主张": claims})
+    result["章节"] = {k: v for k, v in sections.items() if v.strip()}
+    result["原文短引"] = quotes
+    result["直接证据主张"] = claims
+    if claims and valid_sections == 4 and kept >= 160:
+        result["状态"] = "解释性研究已通过基础发布门槛"
+        result["证据级别"] = "程序验证的财务指标与逐字核对的官方PDF短引；分析解释仍属于推断"
+    else:
+        result["状态"] = "条件性研究（原文事实证据不足）"
+        result["证据级别"] = "仅程序财务数据支持的条件性分析；缺少可独立确认的完整PDF事实主张"
+        if not claims:
+            result["限制"] = "官方PDF未提供可逐字匹配的直接事实主张，禁止把研究假设当作公司披露"
+        elif valid_sections < 4:
+            result["限制"] = "部分研究章节信息不足，未提供完整逐字证据研究"
     return result
 
 
 def render_assessed_research(assessment):
-    if assessment["状态"] != "解释性研究已通过基础发布门槛":
+    if assessment["状态"] not in ("解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）"):
         return ('<section class="ai-insight limited"><h3>AI研判：未通过发布门槛</h3>'
                 '<p>本期仅展示程序财务核对和官方原始资料，不发布证据不足的模型判断。</p>'
                 '<small>' + esc("；".join(assessment["原因"])) + '</small></section>')
-    parts = ['<section class="ai-insight"><h3>DeepSeek 解释性研判（非估值评级）</h3>']
+    limited = assessment["状态"] == "条件性研究（原文事实证据不足）"
+    parts = ['<section class="ai-insight"><h3>' +
+             ('DeepSeek 条件性研究（非已核实公司结论）' if limited else
+              'DeepSeek 解释性研判（非估值评级）') + '</h3>',
+             '<p><small>证据等级：' + esc(assessment.get("证据级别", "")) +
+             '</small></p>']
+    if assessment.get("限制"):
+        parts.append('<p><small>研究限制：' + esc(assessment["限制"]) + '</small></p>')
     for label in SECTIONS:
-        parts.append("<p><b>" + esc(label) + "</b><br>" +
-                     esc(assessment["章节"][label]) + "</p>")
+        paragraph = assessment["章节"].get(label)
+        if paragraph:
+            parts.append("<p><b>" + esc(label) + "</b><br>" +
+                         esc(paragraph) + "</p>")
     parts.append('<details><summary>展开原文主张逐字核验（' +
                  str(len(assessment["直接证据主张"])) + '条）</summary>')
     for fact in assessment["直接证据主张"]:
@@ -326,7 +430,8 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
     for market, stock, _, _ in output:
         code = str(stock.get("代码", ""))
         assessment = verified[(market, code)][1]
-        sections = assessment["章节"] if assessment["状态"] == "解释性研究已通过基础发布门槛" else {}
+        sections = assessment["章节"] if assessment["状态"] in (
+            "解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）") else {}
         candidates.append((market, code, sections))
     duplicated = duplicate_reports(candidates)
     for index, reason in duplicated.items():
@@ -340,15 +445,20 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         })
     approved = sum(result["状态"] == "解释性研究已通过基础发布门槛"
                    for _, result in verified.values())
+    limited = sum(result["状态"] == "条件性研究（原文事实证据不足）"
+                  for _, result in verified.values())
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
              '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .ai-insight{border:1px solid #d8e2ef;padding:12px;border-radius:8px}article .issuer-focus{background:#eef5fd;padding:12px;border-radius:8px}article .limited{background:#f9f9f9}article details{margin:12px 0}article summary{cursor:pointer;font-weight:600}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
-             '<meta name="research-approved-count" content="' + str(approved) + '"><meta name="research-total-count" content="' + str(len(output)) + '">',
+             '<meta name="research-approved-count" content="' + str(approved) +
+             '"><meta name="research-limited-count" content="' + str(limited) +
+             '"><meta name="research-total-count" content="' + str(len(output)) + '">',
              '<h1>可复核的股票研究档案</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
              '<p>A股前5只、港股前5只，共10只。分层展示行情原始倍数、同报告季多期财务对照、行业截面样本（若可用）、官方PDF页码摘录、相反证据和跟踪条件。来源缺失不会被AI推断补齐；这些资料不能替代完整审计、行业访谈和估值模型。</p>']
-    parts.append('<p><b>基础审核通过的解释性研究：' + str(approved) + '/' +
-                 str(len(output)) +
-                 '只</b>。其余只展示程序数据和官方来源，不以文章篇幅充当研究质量。</p>')
+    parts.append('<p><b>含逐字证据的研究：' + str(approved) + '/' +
+                 str(len(output)) + '；数据支持的条件性研究：' +
+                 str(limited) + '/' + str(len(output)) + '。</b> '
+                 '未通过研究审核的公司仅展示程序数据；条件性内容不能当作公司已披露事实。</p>')
     parts.append('<section><h2>财务数据覆盖</h2><ul>' +
                  ''.join('<li>' + esc(summary) + '</li>' for summary in summaries) + '</ul></section>')
     for market,s,content,finance in output:
@@ -571,11 +681,15 @@ def main():
         content = request_deepseek(endpoint, key, model, prompt)
         assessment = assess_model_research(content, brief, evidence["公告"])
         print(f"AI发布审查 {market} {code}：{assessment['状态']}，"
-              f"保留分析 {assessment['可用字数']} 字，"
-              f"逐字引用 {assessment.get('已核对原文短引数', 0)} 条", flush=True)
-        if assessment["状态"] != "解释性研究已通过基础发布门槛" and os.getenv("GITHUB_ACTIONS") == "true":
+              f"保留分析 {assessment['可用字数']}/{assessment.get('原始字数', 0)} 字，"
+              f"过滤句 {assessment.get('丢弃句数', 0)}，"
+              f"逐字事实主张 {assessment.get('逐字证据主张数', 0)} 条", flush=True)
+        if assessment["状态"] == "仅发布可核对事实" and os.getenv("GITHUB_ACTIONS") == "true":
             print("::warning::深度研判未通过证据门槛，仅展示程序事实："
                   + market + " " + code, flush=True)
+        elif assessment["状态"] == "条件性研究（原文事实证据不足）":
+            print("::notice::条件性研究可显示，但没有足够逐字原文主张：" +
+                  market + " " + code, flush=True)
         output.append((market,s,content[:10000],finance))
     if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
