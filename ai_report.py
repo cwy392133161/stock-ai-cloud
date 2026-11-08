@@ -338,24 +338,30 @@ def assess_model_research(content, brief, notices):
         result["原因"].append("行情与财务资料的真实截止日期未通过核对")
     if "当前财务指标" not in passed:
         result["原因"].append("没有可核实的同快照期财务指标")
-    # Permit limited research with 3 strong sections and one short one. Never
-    # silently replace absent AI text with invented boilerplate.
-    if valid_sections < 3 or kept < 120:
-        result["原因"].append("可用研究章节不足，不能形成完整分析")
-    if original and kept / original < 0.40:
-        result["原因"].append("未经证实的论断比例过高，研究文本大部分被过滤")
-
+    # Publish the independently passing sentences, not entire untrusted
+    # original paragraphs. A high discard percentage lowers *completeness*,
+    # not the trustworthiness of statements which survived the checks.
+    # Incomplete source/period metadata remains a hard failure above.
+    if valid_sections < 2 or kept < 95:
+        result["原因"].append("可展示研究内容不足两个独立章节或95字")
     if result["原因"]:
         return result
     result["章节"] = {k: v for k, v in sections.items() if v.strip()}
     result["原文短引"] = quotes
     result["直接证据主张"] = claims
-    if claims and valid_sections == 4 and kept >= 160:
+    retained_ratio = (kept / original) if original else 0
+    if claims and valid_sections == 4 and kept >= 160 and retained_ratio >= 0.55:
         result["状态"] = "解释性研究已通过基础发布门槛"
         result["证据级别"] = "程序验证的财务指标与逐字核对的官方PDF短引；分析解释仍属于推断"
+    elif valid_sections < 3 or retained_ratio < 0.40:
+        result["状态"] = "部分条件性研究（仅展示审核后段落）"
+        result["证据级别"] = "只显示通过事实安全过滤的段落，部分原稿已删除；不是完整研究，也不是已披露公司结论"
+        result["限制"] = ("原稿删除了" + str(removed_sentences) + "个未经确认或无法安全展示的句子；"
+                          "保留段落不代表整篇分析已核实。"
+                          + (" 官方PDF没有匹配到可靠的直接原文主张。" if not claims else ""))
     else:
         result["状态"] = "条件性研究（原文事实证据不足）"
-        result["证据级别"] = "仅程序财务数据支持的条件性分析；缺少可独立确认的完整PDF事实主张"
+        result["证据级别"] = "基于已核对报告期财务数据的条件性研究；不能推断无依据的经营事实"
         if not claims:
             result["限制"] = "官方PDF未提供可逐字匹配的直接事实主张，禁止把研究假设当作公司披露"
         elif valid_sections < 4:
@@ -364,14 +370,16 @@ def assess_model_research(content, brief, notices):
 
 
 def render_assessed_research(assessment):
-    if assessment["状态"] not in ("解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）"):
+    if assessment["状态"] not in ("解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）", "部分条件性研究（仅展示审核后段落）"):
         return ('<section class="ai-insight limited"><h3>AI研判：未通过发布门槛</h3>'
                 '<p>本期仅展示程序财务核对和官方原始资料，不发布证据不足的模型判断。</p>'
                 '<small>' + esc("；".join(assessment["原因"])) + '</small></section>')
-    limited = assessment["状态"] == "条件性研究（原文事实证据不足）"
-    parts = ['<section class="ai-insight"><h3>' +
-             ('DeepSeek 条件性研究（非已核实公司结论）' if limited else
-              'DeepSeek 解释性研判（非估值评级）') + '</h3>',
+    limited = assessment["状态"] != "解释性研究已通过基础发布门槛"
+    partial = assessment["状态"] == "部分条件性研究（仅展示审核后段落）"
+    heading = ('DeepSeek 部分条件性研究（原稿已删减）' if partial else
+               'DeepSeek 条件性研究（非已核实公司结论）' if limited else
+               'DeepSeek 解释性研判（非估值评级）')
+    parts = ['<section class="ai-insight"><h3>' + heading + '</h3>',
              '<p><small>证据等级：' + esc(assessment.get("证据级别", "")) +
              '</small></p>']
     if assessment.get("限制"):
@@ -444,7 +452,8 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         code = str(stock.get("代码", ""))
         assessment = verified[(market, code)][1]
         sections = assessment["章节"] if assessment["状态"] in (
-            "解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）") else {}
+            "解释性研究已通过基础发布门槛", "条件性研究（原文事实证据不足）",
+            "部分条件性研究（仅展示审核后段落）") else {}
         candidates.append((market, code, sections))
     duplicated = duplicate_reports(candidates)
     for index, reason in duplicated.items():
@@ -458,8 +467,9 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         })
     approved = sum(result["状态"] == "解释性研究已通过基础发布门槛"
                    for _, result in verified.values())
-    limited = sum(result["状态"] == "条件性研究（原文事实证据不足）"
-                  for _, result in verified.values())
+    limited = sum(result["状态"] in (
+        "条件性研究（原文事实证据不足）", "部分条件性研究（仅展示审核后段落）")
+        for _, result in verified.values())
     parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 股票研究</title>',
              '<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f7f8fa;color:#222;max-width:850px;margin:auto;padding:18px}article{background:white;padding:16px;border-radius:12px;margin:14px 0;line-height:1.7}article blockquote{white-space:pre-wrap}article small{color:#666}article .research-brief{background:#f4f7fb;border-left:3px solid #91aaca;padding:10px 14px;border-radius:8px;font-size:14px}article .ai-insight{border:1px solid #d8e2ef;padding:12px;border-radius:8px}article .issuer-focus{background:#eef5fd;padding:12px;border-radius:8px}article .limited{background:#f9f9f9}article details{margin:12px 0}article summary{cursor:pointer;font-weight:600}article .research-brief ul{margin:6px 0 16px;padding-left:20px}</style>',
              '<meta name="research-approved-count" content="' + str(approved) +
@@ -749,7 +759,7 @@ def main():
         if assessment["状态"] == "仅发布可核对事实" and os.getenv("GITHUB_ACTIONS") == "true":
             print("::warning::深度研判未通过证据门槛，仅展示程序事实："
                   + market + " " + code, flush=True)
-        elif assessment["状态"] == "条件性研究（原文事实证据不足）":
+        elif assessment["状态"] in ("条件性研究（原文事实证据不足）", "部分条件性研究（仅展示审核后段落）"):
             print("::notice::条件性研究可显示，但没有足够逐字原文主张：" +
                   market + " " + code, flush=True)
         output.append((market,s,content[:10000],finance))
