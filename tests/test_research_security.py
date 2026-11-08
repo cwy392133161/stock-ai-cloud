@@ -148,6 +148,15 @@ class EvidenceGateTests(unittest.TestCase):
         self.assertEqual(result["状态"], "仅发布可核对事实")
         self.assertFalse(result["章节"])
 
+    def test_late_risk_caveat_does_not_validate_false_operating_fact(self):
+        from ai_report import review_research_hypotheses
+        out, removed = review_research_hypotheses(
+            "公司订单持续增长，但仍需关注后续经营风险。"
+            "如果未来订单增长，应核实官方公告中的合同依据。")
+        self.assertNotIn("公司订单持续增长", out)
+        self.assertIn("如果未来订单增长", out)
+        self.assertGreaterEqual(removed, 1)
+
     def test_unsupported_operating_achievements_filtered_without_numbers(self):
         for claim in (
             "公司核心产品市场份额持续上升。",
