@@ -7,6 +7,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from peer_valuation import valuation_context
 from research_quality import evidence_quality
+from period_reports import matched_report_notices
 from research_differentiation import focal_question
 
 PERCENT = re.compile(
@@ -79,12 +80,10 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         change.append("财务同比变化无可核对指标，不推断增长或转亏原因")
 
     report = evidence.get("对应报告期财报") or {}
-    matched = any(n.get("报告期匹配") == period for n in evidence.get("公告", [])) if period else False
+    linked = matched_report_notices(evidence, period)
+    matched = bool(linked)
     excerpt_pages = sum(len(n.get("正文摘录", [])) for n in evidence.get("公告", []))
-    report_pages = sum(
-        len(n.get("正文摘录", [])) for n in evidence.get("公告", [])
-        if n.get("报告期匹配") == period
-    ) if matched else 0
+    report_pages = sum(len(n.get("正文摘录", [])) for n in linked)
 
     coverage = [f"财务指标：{status}（{len(metrics)} 项）"]
     if period:
@@ -95,7 +94,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         coverage.append("对应期官方PDF：仅匹配标题，尚无可读正文摘录")
     else:
         coverage.append("对应期官方PDF：未取得可核对片段；财务指标未与官方原文逐项复核")
-    coverage.append(f"近期公告：{len(evidence.get('公告', []))} 条纳入索引；已读摘录 {excerpt_pages} 段")
+    coverage.append(f"官方证据：{len(evidence.get('公告', []))} 条纳入展示（含历史财报）；已读摘录 {excerpt_pages} 段")
     if any(
         p.get("单位") == "未定位" or p.get("表头") == "未定位" or p.get("期间上下文") == "未定位"
         for n in evidence.get("公告", []) for p in n.get("正文摘录", [])
@@ -228,3 +227,4 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         "同业财务分析": peer_finance,
         "条件情景（非价格预测）": scenarios,
     }
+

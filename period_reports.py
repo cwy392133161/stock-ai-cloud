@@ -60,6 +60,35 @@ def dates_in_title(text):
     return found
 
 
+def filing_kind(title):
+    """Classify the document itself, independently of its dates or score.
+
+    An interim dividend and a notice of board approval are not financial
+    reports. Results may mention a dividend, but remain results, not reports.
+    """
+    text = normalize_title(title)
+    if SUMMARY_ONLY.search(text) or re.search(
+        r"董事[会會]|board meeting|董事局|寄[发發]|派[发發]|刊[发發]|刊登|"
+        r"发布提示|發佈提示|通知|通告|notice|notification|dispatch|despatch|"
+        r"availability|月[报報]表|monthly return|补充公告|補充公告|澄清|"
+        r"[问問][询詢]函|回复|回覆|clarification|supplemental announcement|"
+        r"supplementary announcement|response to", text, re.I
+    ):
+        return "other"
+    if re.search(
+        r"(?:年度|中期|季度|半年度|半年|第[一三13]季度)(?:财务|財務)?[报報]告|"
+        r"(?<!月)[年季][报報]|半年[报報]|"
+        r"\b(?:annual|interim|quarterly|half.year)\s+(?:financial\s+)?report\b|"
+        r"(?:财务|財務)[报報]告", text, re.I
+    ):
+        return "full_report"
+    if re.search(r"[业業][绩績]|\bresults\b", text, re.I):
+        return "results"
+    if re.search(r"financial statements", text, re.I):
+        return "full_report"
+    return "other"
+
+
 def period_title_score(title, period, market):
     """Return a score only when period and title clearly agree.
 
@@ -68,7 +97,8 @@ def period_title_score(title, period, market):
     """
     target = date.fromisoformat(str(period))
     text = normalize_title(title)
-    if SUMMARY_ONLY.search(text) or not REPORT_WORDS.search(text):
+    kind = filing_kind(title)
+    if kind == "other":
         return 0
     explicit = dates_in_title(text)
     if explicit and target not in explicit:
@@ -100,8 +130,7 @@ def period_title_score(title, period, market):
     if not expected:
         return 0
     # Full-length reports are preferred over preliminary results announcements.
-    full = bool(re.search(r"报告|報告|\breport\b|financial statements", text))
-    return (60 if full else 40) + (30 if target in explicit else 0)
+    return (100 if kind == "full_report" else 40) + (30 if target in explicit else 0)
 
 
 def filing_search_windows(period, as_of, *, days=420, width=55):
@@ -117,3 +146,20 @@ def filing_search_windows(period, as_of, *, days=420, width=55):
         windows.append((cursor, stop))
         cursor = stop + timedelta(days=1)
     return windows
+
+
+
+def matched_report_notices(evidence, period):
+    """Revalidate stored period tags instead of trusting old misclassifications."""
+    if not period:
+        return []
+    matched = []
+    for notice in evidence.get("公告", []):
+        try:
+            if (notice.get("报告期匹配") == period and
+                    max(period_title_score(notice.get("标题", ""), period, market)
+                        for market in ("港股", "A股")) >= 100):
+                matched.append(notice)
+        except (TypeError, ValueError):
+            continue
+    return matched
