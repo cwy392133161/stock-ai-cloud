@@ -1,12 +1,12 @@
 {
-  "state": "partial",
-  "description": "本期研究已更新，1/10只有逐字证据研究，另有5只条件性研究",
+  "state": "market-unavailable",
+  "description": "行情数据源故障：本次选股未成功，保留旧快照；未对其重新生成AI研究",
   "snapshot": "2026-11-06 23:25",
   "report_snapshot": "2026-11-06 23:25",
-  "ai_step": "success",
-  "market_state": "not_rechecked",
+  "ai_step": "skipped",
+  "market_state": "failed",
   "research_approved": 1,
   "research_limited": 5,
   "research_total": 10,
-  "recorded_utc": "2026-11-08T08:27:14+00:00"
+  "recorded_utc": "2026-11-09T10:17:47+00:00"
 }
