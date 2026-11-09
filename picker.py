@@ -110,40 +110,63 @@ def _norm_hk_code(code):
     return s.zfill(5)
 
 
-def fetch_em_clist(host, fs, market):
+def _ak_em_get(url, **kwargs):
+    """Use AKShare's bounded, fresh-connection transport, not its column projection.
+
+    AKShare 1.20.34 stock_hk_spot_em discards f8/f9/f10/f21/f23/f24/f25.
+    Keep the same Eastmoney fields and units; never substitute f115 PE or f20 cap.
+    """
+    from akshare.utils import http
+    return http.request_with_retry(
+        "get", url, fresh_session=True, max_retries=3, **kwargs)
+
+
+def fetch_em_clist(host, fs, market, get=None):
     """直调东财行情接口，慢速分页拉全量。host 如 '82'，空串表示不带数字的 push2。"""
+    get = get or requests.get
     base = f"https://{host + '.' if host else ''}push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1", "pz": str(PAGE_SIZE), "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281", "fltt": "2", "invt": "2",
         "fid": "f12", "fs": fs, "fields": EM_FIELDS, "_": "1700000000000",
     }
-    r = requests.get(base, params=params, headers=UA, timeout=20)
-    r.raise_for_status()
-    data = r.json().get("data") or {}
-    total = int(data.get("total") or 0)
-    if total <= 0 or not data.get("diff"):
+    def page_data():
+        r = get(base, params=params.copy(), headers=UA, timeout=20)
+        r.raise_for_status()
+        data = r.json().get("data") or {}
+        diff = data.get("diff") or []
+        rows = list(diff.values()) if isinstance(diff, dict) else diff
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise ValueError("东财分页格式异常（非证券对象）")
+        return int(data.get("total") or 0), rows
+
+    total, rows = page_data()
+    if total <= 0 or not rows:
         raise ValueError("东财接口返回空数据")
-    first_page = data["diff"]
-    rows = list(first_page.values()) if isinstance(first_page, dict) else list(first_page)
-    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    # Some servers cap pages below the requested pz. Use the observed size.
+    page_size = len(rows)
+    pages = (total + page_size - 1) // page_size
+    if pages > 200:
+        raise ValueError("东财分页不完整或异常：页数超过安全上限")
     for page in range(2, pages + 1):
         time.sleep(_page_delay())
         params["pn"] = str(page)
-        r = requests.get(base, params=params, headers=UA, timeout=20)
-        r.raise_for_status()
-        diff = (r.json().get("data") or {}).get("diff") or []
-        rows.extend(diff.values() if isinstance(diff, dict) else diff)
-    if len(rows) < total * 0.98:
+        page_total, diff = page_data()
+        if page_total != total or len(diff) != min(page_size, total - len(rows)):
+            raise ValueError(f"东财分页不完整或总数变化：第 {page} 页")
+        rows.extend(diff)
+    if len(rows) != total:
         raise ValueError(f"东财分页不完整：预期 {total} 行，实际 {len(rows)} 行")
-    if not all(isinstance(row, dict) for row in rows):
-        raise ValueError("东财分页格式异常（非证券对象）")
     df = pd.DataFrame(rows)
     keep = [c for c in EM_COLS if c in df.columns]
     df = df[keep].rename(columns=EM_COLS)
+    if "代码" not in df or df["代码"].isna().any():
+        raise ValueError("东财证券代码缺失")
     df["代码"] = df["代码"].astype(str)
     if market == "HK":
         df["代码"] = df["代码"].map(_norm_hk_code)
+    if df["代码"].eq("").any() or df["代码"].duplicated().any():
+        raise ValueError("东财分页证券代码缺失或重复")
     for col in ("最新价", "涨跌幅", "涨跌额", "成交量", "成交额", "振幅", "换手率",
                 "市盈率-动态", "量比", "5分钟涨跌", "最高", "最低", "今开", "昨收",
                 "总市值", "流通市值", "涨速", "市净率", "60日涨跌幅", "年初至今涨跌幅"):
@@ -153,14 +176,17 @@ def fetch_em_clist(host, fs, market):
     return df
 
 
-def fetch_em_market(label, hosts, fs, market):
+def fetch_em_market(label, hosts, fs, market, get=None):
     """轮换多台东财行情服务器拉取，全部失败才抛错。"""
     last_err = None
     for j, host in enumerate(hosts):
         if j > 0:
             time.sleep(10)
         try:
-            return fetch_em_clist(host, fs, market)
+            df = fetch_em_clist(host, fs, market, get=get)
+            source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")
+            df.attrs["quality"] = validate_market_data(df, label, source)
+            return df
         except Exception as e:  # noqa: BLE001
             last_err = e
             print(f"[{label}] 服务器 {host or 'push2'} 失败：{str(e)[:150]}", flush=True)
@@ -172,7 +198,11 @@ def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
     waits = _retry_waits() or [0]
     attempts = [("东财直连", lambda: fetch_em_market(label, hosts, fs, market))]
     if ak is not None:
-        attempts.append(("AKShare 东财", ak_primary))
+        if market == "HK":
+            attempts.append(("东财港股原始字段（AKShare传输）", lambda: fetch_em_market(
+                label, hosts, fs, market, get=_ak_em_get)))
+        else:
+            attempts.append(("AKShare 东财", ak_primary))
         if market == "A":
             def regional_quotes():
                 # Try smaller Eastmoney market segments when the all-market request fails.
@@ -198,7 +228,7 @@ def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
             if df is None or len(df) == 0:
                 raise ValueError("接口返回空数据")
             df = _standardize(df)
-            quality = validate_market_data(df, label, name)
+            quality = validate_market_data(df, label, df.attrs.get("quality", {}).get("行情来源", name))
             df.attrs["quality"] = quality
             print(f"[{label}] {name}质量合格：{len(df)} 行；"
                   f"字段有效覆盖 {quality['字段有效覆盖率%']}", flush=True)
@@ -271,7 +301,7 @@ def score_a(df):
 def score_hk(df):
     """港股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。
     直连接口的港股数据包含 60 日涨跌幅、换手率、市盈率等全字段，与 A 股用
-    同一套打分；只有走 AKShare 港股源兜底时这些字段缺失，缺失项按中性处理。"""
+    同一套打分；所有来源必须先通过字段覆盖检查，整列缺失的来源不得入榜。"""
     d = df.copy()
     d["最新价"] = _col(d, "最新价")
     d["涨跌幅"] = _col(d, "涨跌幅")
@@ -500,3 +530,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

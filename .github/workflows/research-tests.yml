@@ -18,6 +18,9 @@ on:
       - 'disclosures.py'
       - 'picker.py'
       - 'market_schedule.py'
+      - 'market_quality.py'
+      - 'market_probe.py'
+      - 'requirements.txt'
       - '.github/workflows/daily.yml'
       - 'tests/**'
       - 'test_*.py'
@@ -50,3 +53,4 @@ jobs:
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Original financial regression tests (no external API)
         run: python -m unittest test_finance test_hk_original test_hk_products test_report -v
+
