@@ -188,7 +188,11 @@ def fetch_em_market(label, hosts, fs, market, get=None):
         if j > 0:
             time.sleep(10)
         try:
-            df = fetch_em_clist(host, fs, market, get=get)
+            # Delayed HK pagination occasionally times out; retry the page,
+            # not the entire universe. Existing AKShare transport is bounded
+            # to three fresh connections and stops recognized push2 throttling.
+            page_get = _ak_em_get if host == "delay" and get is None and ak is not None else get
+            df = fetch_em_clist(host, fs, market, get=page_get)
             if market == "HK":
                 df = validate_delayed_hk_times(df)
             source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")

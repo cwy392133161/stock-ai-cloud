@@ -62,4 +62,9 @@ class HKFreshnessTests(unittest.TestCase):
         self.assertIn('行情时效',result.attrs['quality'])
         self.assertIn('30',result.attrs['quality']['行情时效'])
 
+    def test_delay_prefers_bounded_fresh_connection_page_transport(self):
+        with patch.object(picker,'ak',object()), patch.object(picker,'fetch_em_clist',return_value=quotes(1500)) as fetch:
+            picker.fetch_em_market('港股',['delay'],'','HK')
+        self.assertIs(fetch.call_args.kwargs['get'],picker._ak_em_get)
+
 if __name__=='__main__': unittest.main()
