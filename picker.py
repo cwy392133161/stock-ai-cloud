@@ -19,6 +19,7 @@ import sys
 import time
 from html import escape as escape_html
 
+from market_freshness import validate_delayed_hk_times
 from tencent_market import fetch_tencent_a
 from market_transport import EastmoneyBudget, ProviderCooldown
 from market_quality import MarketDataQualityError, validate_market_data
@@ -56,16 +57,16 @@ EM_COLS = {
     "f10": "量比", "f11": "5分钟涨跌", "f12": "代码", "f14": "名称",
     "f15": "最高", "f16": "最低", "f17": "今开", "f18": "昨收",
     "f20": "总市值", "f21": "流通市值", "f22": "涨速", "f23": "市净率",
-    "f24": "60日涨跌幅", "f25": "年初至今涨跌幅", "f100": "行业",
+    "f24": "60日涨跌幅", "f25": "年初至今涨跌幅", "f100": "行业", "f124": "f124",
 }
 EM_FIELDS = ",".join(["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
                       "f10", "f12", "f13", "f14", "f15", "f16", "f17", "f18",
                       "f20", "f21", "f23", "f24", "f25", "f22", "f11", "f62",
-                      "f128", "f136", "f115", "f152", "f100"])
+                      "f128", "f136", "f115", "f152", "f100", "f124"])
 EM_FS_A = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"   # 沪深京 A 股
 EM_FS_HK = "m:128 t:3,m:128 t:4,m:128 t:1,m:128 t:2"           # 港股
 EM_HOSTS_A = ["82", "7", "28", ""]    # 空字符串 = 不带数字的 push2.eastmoney.com
-EM_HOSTS_HK = ["72", "81", "7", ""]
+EM_HOSTS_HK = ["delay", "72", "81", "7", ""]
 
 
 def _retry_waits():
@@ -127,6 +128,8 @@ def fetch_em_clist(host, fs, market, get=None):
     """直调东财行情接口，慢速分页拉全量。host 如 '82'，空串表示不带数字的 push2。"""
     get = get or requests.get
     base = f"https://{host + '.' if host else ''}push2.eastmoney.com/api/qt/clist/get"
+    if host == "delay":
+        base = "https://push2delay.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1", "pz": str(PAGE_SIZE), "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281", "fltt": "2", "invt": "2",
@@ -186,8 +189,11 @@ def fetch_em_market(label, hosts, fs, market, get=None):
             time.sleep(10)
         try:
             df = fetch_em_clist(host, fs, market, get=get)
+            if market == "HK":
+                df = validate_delayed_hk_times(df)
             source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")
             df.attrs["quality"] = validate_market_data(df, label, source)
+            df.attrs["quality"].update(df.attrs.get("freshness", {}))
             return df
         except ProviderCooldown:
             raise
@@ -266,6 +272,7 @@ def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
                 raise ValueError("接口返回空数据")
             df = _standardize(df)
             quality = validate_market_data(df, label, df.attrs.get("quality", {}).get("行情来源", name))
+            quality = {**df.attrs.get("quality", {}), **quality}
             df.attrs["quality"] = quality
             print(f"[{label}] {name}质量合格：{len(df)} 行；"
                   f"字段有效覆盖 {quality['字段有效覆盖率%']}", flush=True)
@@ -481,7 +488,7 @@ th{background:#fafafa;font-size:13px;color:#555}
 
 HTML_FOOT = """
 <p class="note">⚠️ 本页面由程序按公开行情数据自动生成，仅供学习参考，不构成任何投资建议。股市有风险，入市需谨慎。<br>
-选股逻辑：过滤 ST / 退市、流通市值与成交额过小的股票后，按趋势、活跃度、估值、规模综合打分，各市场取前 20 名。数据来源：东方财富免费行情接口（直连 + AKShare / 新浪兜底）。<br>
+选股逻辑：过滤 ST / 退市、流通市值与成交额过小的股票后，按趋势、活跃度、估值、规模综合打分，各市场取前 20 名。数据来源：东方财富原始字段行情（含港股官方延迟源），A 股不可用时使用经字段核验的腾讯备用源。<br>
 遇到节假日、行情接口故障或 GitHub 定时任务延迟，页面可能显示上一次的结果，请以页面上的更新时间为准。</p>
 </div></body></html>
 """
@@ -551,6 +558,9 @@ def main():
                 + " · 60日涨幅 " + str(cov["60日涨跌幅"]) + "%"
                 + " · 换手率 " + str(cov["换手率"]) + "%"
                 + " · 流通市值 " + str(cov["流通市值"]) + "%")
+        timing = q.get("行情时效", q.get("时效说明", ""))
+        if timing:
+            text += " · " + timing
         html += '<p class="sub">' + escape_html(text) + '</p>'
     html += table_html("🇨🇳 A 股 Top 20", top_a, "A")
     html += table_html("🇭🇰 港股 Top 20", top_hk, "HK")

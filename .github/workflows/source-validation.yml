@@ -34,5 +34,12 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
-      - name: Validate existing HK raw source (no publishing)
-        run: python -u market_probe.py --market HK
+      - name: Validate official delayed HK source (no publishing)
+        run: |
+          python -u - <<'PY'
+          import json
+          from picker import fetch_em_market, EM_FS_HK, score_hk
+          frame = fetch_em_market("港股", ["delay"], EM_FS_HK, "HK")
+          print(json.dumps(frame.attrs["quality"], ensure_ascii=False, indent=2))
+          print("Eligible under unchanged score rules:", len(score_hk(frame)))
+          PY

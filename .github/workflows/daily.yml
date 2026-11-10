@@ -11,6 +11,10 @@ on:
         description: "仅生成 AI 报告（使用已发布的行情快照，跳过实时选股）"
         type: boolean
         default: false
+      skip_ai:
+        description: "跳过 AI，仅更新行情和报告时效标识（不调用付费模型）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -41,11 +45,14 @@ jobs:
         if: ${{ inputs.report_only }}
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}
+          SKIP_AI: ${{ inputs.skip_ai }}
         run: |
           python - <<'PY'
           import json
           import os
           from pathlib import Path
+          if os.getenv("SKIP_AI") == "true":
+              raise SystemExit("report_only 与 skip_ai 不能同时选择")
           snapshot = json.loads(Path("docs/data.json").read_text())
           if os.getenv("AI_ENABLED") != "true":
               raise SystemExit("请启用 AI_ENABLED 后生成报告")
@@ -69,12 +76,12 @@ jobs:
 
       - name: 安装公告 PDF 文本读取工具
         continue-on-error: true
-        if: ${{ vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
+        if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
         run: command -v pdftotext || (sudo apt-get update -qq && sudo apt-get install -y poppler-utils)
 
       - name: 生成可选 AI 深度分析
         id: deep_research
-        if: ${{ vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
+        if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
         continue-on-error: ${{ !inputs.report_only }}
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}

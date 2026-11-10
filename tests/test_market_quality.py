@@ -1,5 +1,6 @@
 """Offline regression tests for market-wide quality and existing score rules."""
 import json
+import time
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ def quotes(n=3500):
     codes = [f"{i:06d}" for i in range(1, n + 1)]
     return pd.DataFrame({
         "代码": codes,
+        "f124": [time.time()] * n,
         "名称": ["样本"] * n,
         "最新价": [10.0 + i / 1000 for i in range(n)],
         "涨跌幅": [float((i % 100) - 50) / 10 for i in range(n)],

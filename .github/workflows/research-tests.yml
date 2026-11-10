@@ -21,6 +21,7 @@ on:
       - 'market_quality.py'
       - 'market_probe.py'
       - 'market_transport.py'
+      - 'market_freshness.py'
       - 'tencent_market.py'
       - '.github/workflows/market-probe.yml'
       - 'requirements.txt'
