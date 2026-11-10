@@ -1,0 +1,39 @@
+{
+  "observed_utc": "2026-11-10T01:29:33Z",
+  "method": "Direct HTTP read of current Tencent frontend and quote response; excerpts reproduced from tool output.",
+  "official_quote_js": "https://st.gtimg.com/quotes/hs-fund/bundle.13362df9.js",
+  "official_rank_js": "https://st.gtimg.com/quotes_center/assets/index.d7a7bead.js",
+  "quote_mapping_excerpt": "adaptHS: secu_info {ltgb:t[72],nczj:t[62],zdf_day20:t[70],zdf_day5:t[63],zgb:t[73]}; secu_quote {amplitude:t[43],avg_price:t[51],cje:t[57],cjl:t[36],dynamic_ratio:t[52],hsl:t[38],lsacle:t[49],ltz:t[44],lyr_ratio:t[53],sjl:t[46],syl:t[39],utime:ot(t[30])}",
+  "units_excerpts": [
+    "n.ltz=L(n.ltz,\"亿\",2,2)",
+    "n.cje=L(1e4*n.cje)",
+    "60日涨跌幅: g.GET_PERCENT(T.zdf_d60)",
+    "年初至今: g.GET_PERCENT(T.zdf_y)"
+  ],
+  "sample_sh600519": {
+    "timestamp_30": "20261110092923",
+    "price_3": "1438.23",
+    "raw_35": "1438.23/204/29339892",
+    "amount_37": "2934",
+    "amount_57": "2933.9892",
+    "float_cap_44": "17979.05",
+    "total_cap_45": "17979.05",
+    "pe_ttm_39": "21.88",
+    "pe_dynamic_52": "20.92",
+    "pe_static_53": "21.84",
+    "pb_46": "6.63",
+    "float_shares_72": "1250081601",
+    "total_shares_73": "1250081601"
+  },
+  "other_dynamic_pe_52_samples": {
+    "sh600000": "6.19",
+    "sz000001": "4.39",
+    "bj430139": "-553.81"
+  },
+  "cautions": [
+    "60-day change not mapped by quote frontend; rank_list needed.",
+    "rank_list no per-row timestamp.",
+    "count=6000 fails with business code 1619377101; pagination required.",
+    "A second quote request at approximately 09:34 CST timed out after 20s; small successful sample does not prove full market stability."
+  ]
+}

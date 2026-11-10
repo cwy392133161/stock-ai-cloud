@@ -8,6 +8,11 @@ from test_market_quality import quotes
 
 
 class BudgetTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.object(picker, "fetch_tencent_a", side_effect=RuntimeError("offline source unavailable"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_429_stops_all_followup_requests(self):
         response = Mock(status_code=429)
         get = Mock(return_value=response)

@@ -28,6 +28,11 @@ def quotes(n=3500):
 
 
 class DataQualityTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.object(picker, "fetch_tencent_a", side_effect=RuntimeError("offline source unavailable"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_complete_market_validates_and_is_json_safe(self):
         q = validate_market_data(quotes(), "A股", "fixture")
         self.assertEqual(q["有效股票数"], 3500)

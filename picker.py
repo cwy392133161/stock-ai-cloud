@@ -19,6 +19,7 @@ import sys
 import time
 from html import escape as escape_html
 
+from tencent_market import fetch_tencent_a
 from market_transport import EastmoneyBudget, ProviderCooldown
 from market_quality import MarketDataQualityError, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
@@ -203,7 +204,7 @@ def _ak_em_single_get(url, **kwargs):
         "get", url, fresh_session=True, max_retries=1, **kwargs)
 
 
-def fetch_a_market(label, hosts, fs):
+def _fetch_a_em_market(label, hosts, fs):
     """A股全字段、限流即停；AKShare只作传输，不是独立备用数据源。"""
     get = _ak_em_single_get if ak is not None else requests.get
     budget = EastmoneyBudget(get)
@@ -220,6 +221,22 @@ def fetch_a_market(label, hosts, fs):
             "不重试同源AKShare全市场/分市场；新浪缺少必要评分字段，不能作为等价备用源。"
             f"本轮东财请求 {budget.requests} 次：{exc}"
         ) from exc
+
+
+def fetch_a_market(label, hosts, fs):
+    try:
+        return _fetch_a_em_market(label, hosts, fs)
+    except Exception as eastmoney_error:
+        print(f"[A股] 东财不可用，改试独立腾讯全字段源：{eastmoney_error}", flush=True)
+        try:
+            frame = fetch_tencent_a()
+            quality = validate_market_data(frame, label, "腾讯全市场+批量原始行情/动态PE")
+            frame.attrs.setdefault("quality", {}).update(quality)
+            return frame
+        except Exception as tencent_error:
+            raise RuntimeError(
+                f"A股 未找到字段完整且合格的行情源；东财：{eastmoney_error}；腾讯：{tencent_error}"
+            ) from tencent_error
 
 
 def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
