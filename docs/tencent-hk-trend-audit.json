@@ -1,0 +1,133 @@
+{
+  "assembled_at_utc": "2026-11-10T01:45:30.722379+00:00",
+  "method": "Three observed live qt arrays, matching qfq historical close exactly N prior trading bars before quote date. No synthetic market observations. Stored excerpts from tool responses; not a new download.",
+  "sources": {
+    "quotes": "https://qt.gtimg.cn/q=hk00700,hk09988,hk00005",
+    "history": "https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get?param={code},day,,,90,qfq",
+    "official_parser": "https://st.gtimg.com/quotes/hs-fund/bundle.13362df9.js",
+    "official_chart": "https://st.gtimg.com/quotes/hk/zxgweb-chart-9fc1788a8403.js"
+  },
+  "samples": [
+    {
+      "code": "hk00700",
+      "quote_timestamp": "2026/11/10 09:20:15",
+      "quote_price": 423.0,
+      "qt61": -28.75,
+      "qt62": 6.5,
+      "qt67": -0.66,
+      "qt68": -3.86,
+      "qfq_reference_5": [
+        "2026-11-03",
+        397.2
+      ],
+      "qfq_reference_20": [
+        "2026-10-12",
+        425.8
+      ],
+      "qfq_reference_60": [
+        "2026-08-14",
+        440.0
+      ],
+      "qfq_year_end": [
+        "2025-12-31",
+        593.7
+      ],
+      "unadjusted_year_end": [
+        "2025-12-31",
+        599.0
+      ],
+      "computed_return_5": 6.495468277945626,
+      "computed_return_20": -0.6575857209957792,
+      "computed_return_60": -3.863636363636369,
+      "computed_ytd": -28.751894896412335
+    },
+    {
+      "code": "hk09988",
+      "quote_timestamp": "2026/11/10 09:20:15",
+      "quote_price": 104.1,
+      "qt61": -26.57,
+      "qt62": 4.57,
+      "qt67": -3.79,
+      "qt68": -13.18,
+      "qfq_reference_5": [
+        "2026-11-03",
+        99.55
+      ],
+      "qfq_reference_20": [
+        "2026-10-12",
+        108.2
+      ],
+      "qfq_reference_60": [
+        "2026-08-14",
+        119.9
+      ],
+      "computed_return_5": 4.570567553992966,
+      "computed_return_20": -3.7892791127541625,
+      "computed_return_60": -13.177648040033374
+    },
+    {
+      "code": "hk00005",
+      "quote_timestamp": "2026/11/10 09:20:15",
+      "quote_price": 140.5,
+      "qt61": 20.57,
+      "qt62": 5.39,
+      "qt67": -4.63,
+      "qt68": -12.2,
+      "qfq_reference_5": [
+        "2026-11-03",
+        133.316
+      ],
+      "qfq_reference_20": [
+        "2026-10-12",
+        147.316
+      ],
+      "qfq_reference_60": [
+        "2026-08-14",
+        160.016
+      ],
+      "computed_return_5": 5.388700531069035,
+      "computed_return_20": -4.626788671970461,
+      "computed_return_60": -12.196280371962798
+    }
+  ],
+  "status": "Three HK samples: Eastmoney f24 matches Tencent qfq 60-trading-day reference within rounding after using EM current price. Tencent 00700 YTD also matches exact qfq year-end reference. Other two YTD rebases are only from rounded qt61, not independently checked year-end history. No full universe verification.",
+  "eastmoney_alignment_probe": {
+    "time_utc": "2026-11-10T01:45:38.309222+00:00",
+    "url": "https://push2delay.eastmoney.com/api/qt/ulist.np/get?ut=f057cbcbce2a86e2866ab8877db1d059&fltt=2&invt=2&fields=f12%2Cf14%2Cf2%2Cf24%2Cf25%2Cf124&secids=116.00700%2C116.09988%2C116.00005",
+    "status": 200,
+    "body_excerpt": "{\"rc\":0,\"rt\":11,\"svr\":177622162,\"lt\":2,\"full\":1,\"dlmkts\":\"8,10,128\",\"dsc\":\"0\",\"data\":{\"total\":3,\"diff\":[{\"f2\":420.2,\"f12\":\"00700\",\"f14\":\"腾讯控股\",\"f24\":-4.5,\"f25\":-29.22,\"f124\":1794275137},{\"f2\":102.1,\"f12\":\"09988\",\"f14\":\"阿里巴巴-W\",\"f24\":-14.85,\"f25\":-27.98,\"f124\":1794275137},{\"f2\":141.4,\"f12\":\"00005\",\"f14\":\"汇丰控股\",\"f24\":-11.63,\"f25\":21.35,\"f124\":1794275122}]}}"
+  },
+  "eastmoney_cross_price_comparison": [
+    {
+      "code": "hk00700",
+      "em_price": 420.2,
+      "em_f24": -4.5,
+      "em_f25": -29.22,
+      "computed_60_at_em_price": -4.5000000000000036,
+      "qt_ytd_rebased_to_em_price": -29.22163120567376,
+      "computed_ytd_at_em_price": -29.22351355903656
+    },
+    {
+      "code": "hk09988",
+      "em_price": 102.1,
+      "em_f24": -14.85,
+      "em_f25": -27.98,
+      "computed_60_at_em_price": -14.845704753961641,
+      "qt_ytd_rebased_to_em_price": -27.98075888568684
+    },
+    {
+      "code": "hk00005",
+      "em_price": 141.4,
+      "em_f24": -11.63,
+      "em_f25": 21.35,
+      "computed_60_at_em_price": -11.633836616338355,
+      "qt_ytd_rebased_to_em_price": 21.34233451957297
+    }
+  ],
+  "eastmoney_all_factor_probe": {
+    "utc": "2026-11-10T01:47:07.340517+00:00",
+    "url": "https://push2delay.eastmoney.com/api/qt/ulist.np/get?ut=f057cbcbce2a86e2866ab8877db1d059&fltt=2&invt=2&fields=f12%2Cf14%2Cf2%2Cf3%2Cf6%2Cf8%2Cf9%2Cf10%2Cf21%2Cf23%2Cf24%2Cf25%2Cf124&secids=116.00700%2C116.09988%2C116.00005",
+    "status": 200,
+    "body": "{\"rc\":0,\"rt\":11,\"svr\":177622402,\"lt\":2,\"full\":1,\"dlmkts\":\"8,10,128\",\"dsc\":\"0\",\"data\":{\"total\":3,\"diff\":[{\"f2\":420.0,\"f3\":0.38,\"f6\":1158546224.0,\"f8\":0.03,\"f9\":14.31,\"f10\":0.73,\"f12\":\"00700\",\"f14\":\"腾讯控股\",\"f21\":3818910828180,\"f23\":2.92,\"f24\":-4.55,\"f25\":-29.26,\"f124\":1794275225},{\"f2\":102.1,\"f3\":-2.39,\"f6\":1658453104.0,\"f8\":0.08,\"f9\":23.91,\"f10\":1.42,\"f12\":\"09988\",\"f14\":\"阿里巴巴-W\",\"f21\":2031990066379,\"f23\":1.61,\"f24\":-14.85,\"f25\":-27.98,\"f124\":1794275224},{\"f2\":141.4,\"f3\":2.99,\"f6\":279909040.0,\"f8\":0.01,\"f9\":11.7,\"f10\":1.12,\"f12\":\"00005\",\"f14\":\"汇丰控股\",\"f21\":2422777489556,\"f23\":1.58,\"f24\":-11.63,\"f25\":21.35,\"f124\":1794275222}]}}"
+  }
+}

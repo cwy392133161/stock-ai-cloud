@@ -1,5 +1,6 @@
 """Offline regression tests for market-wide quality and existing score rules."""
 import json
+import time
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ def quotes(n=3500):
     codes = [f"{i:06d}" for i in range(1, n + 1)]
     return pd.DataFrame({
         "代码": codes,
+        "f124": [time.time()] * n,
         "名称": ["样本"] * n,
         "最新价": [10.0 + i / 1000 for i in range(n)],
         "涨跌幅": [float((i % 100) - 50) / 10 for i in range(n)],
@@ -28,6 +30,11 @@ def quotes(n=3500):
 
 
 class DataQualityTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.object(picker, "fetch_tencent_a", side_effect=RuntimeError("offline source unavailable"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_complete_market_validates_and_is_json_safe(self):
         q = validate_market_data(quotes(), "A股", "fixture")
         self.assertEqual(q["有效股票数"], 3500)
@@ -129,10 +136,10 @@ class DataQualityTests(unittest.TestCase):
         good = quotes()
         bad = good.drop(columns=["流通市值"])
         with patch.object(picker, "ak", object()), patch.object(
-            picker, "fetch_em_market", return_value=bad
+            picker, "fetch_em_market", side_effect=[bad, good]
         ), patch.object(picker.time, "sleep", return_value=None):
-            result = picker.fetch_market("A股", [], "", "A", lambda: good, lambda: bad)
-            self.assertEqual(result.attrs["quality"]["行情来源"], "AKShare 东财")
+            result = picker.fetch_market("港股", [], "", "HK", None, lambda: bad)
+            self.assertEqual(result.attrs["quality"]["行情来源"], "东财港股原始字段（AKShare传输）")
             self.assertEqual(len(result), 3500)
 
     def test_bad_source_never_publishes_fake_scores(self):

@@ -1,0 +1,27 @@
+"""The live source check must never publish or invoke paid AI."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class WorkflowSafetyTests(unittest.TestCase):
+    def test_source_validation_is_read_only(self):
+        source = (ROOT / ".github/workflows/source-validation.yml").read_text()
+        self.assertIn("contents: read", source)
+        for forbidden in ("ai_report.py", "secrets.", "git push", "contents: write"):
+            self.assertNotIn(forbidden, source)
+
+    def test_manual_skip_ai_guards_both_optional_steps(self):
+        daily = (ROOT / ".github/workflows/daily.yml").read_text()
+        self.assertIn("skip_ai:", daily)
+        self.assertEqual(daily.count("!inputs.skip_ai && vars.AI_ENABLED"), 2)
+        self.assertIn('os.getenv("SKIP_AI") == "true"', daily)
+
+    def test_probe_hk_does_not_repeat_failed_normal_hosts(self):
+        source = (ROOT / ".github/workflows/source-validation.yml").read_text()
+        self.assertIn('fetch_em_market("港股", ["delay"], EM_FS_HK, "HK")', source)
+
+
+if __name__ == "__main__":
+    unittest.main()
