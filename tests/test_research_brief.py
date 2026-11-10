@@ -37,6 +37,7 @@ class ResearchBriefTests(unittest.TestCase):
 
     def test_report_excerpt_is_not_claimed_full_text_audit(self):
         disclosure = {
+            "来源": "巨潮资讯",
             "对应报告期财报": {
                 "报告期": "2026-09-30", "状态": "标题与报告期匹配，PDF正文待核验",
             },

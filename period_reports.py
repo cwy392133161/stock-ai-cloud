@@ -89,6 +89,26 @@ def filing_kind(title):
     return "other"
 
 
+
+def _unambiguous_quarter_year(text, year):
+    """Only infer a calendar quarter from an attached, unique fiscal year.
+
+    A revision/publication year or a split fiscal year is not a quarter end.
+    This guard applies only to the newly supported undated HK Q1/Q3 titles.
+    Explicitly dated filings and existing A/interim/annual rules are unchanged.
+    """
+    years = set(re.findall(r"(?<!\d)\d{4}(?!\d)", text))
+    if years != {str(year)}:
+        return False
+    if re.search(r"(?<!\d)\d{4}\s*年?\s*(?:[/‐‑‒–—―-]|至|到|to)\s*\d{2,4}(?!\d)", text):
+        return False
+    quarter = r"(?:第?[一三13]季度|[一三]季[报報]|first quarter|third quarter|q[13]\b)"
+    fiscal_year = rf"(?<!\d){year}(?!\d)"
+    return bool(re.search(fiscal_year + r"\s*(?:年度?|財年|财年)?\s*" + quarter, text) or
+                re.search(quarter + r"\s+(?:(?:report|results)\s+)?(?:for\s+)?" +
+                          r"(?:the\s+)?(?:year\s+)?" + fiscal_year, text))
+
+
 def period_title_score(title, period, market):
     """Return a score only when period and title clearly agree.
 
@@ -123,10 +143,16 @@ def period_title_score(title, period, market):
     else:
         # HK fiscal year ends vary. Require an explicit ending date for
         # non-standard fiscal year ends rather than guessing from a calendar.
+        # Explicit year + Q1/Q3 titles also identify standard calendar quarter
+        # ends (e.g. HK-listed mainland banks). This remains title-level
+        # evidence: results announcements must not become full reports.
         expected = (q1 or q3 or interim or annual) and (
             target in explicit or
             (target.month == 6 and interim) or
-            (target.month == 12 and annual))
+            (target.month == 12 and annual) or
+            (not explicit and _unambiguous_quarter_year(text, target.year) and (
+                (target == date(target.year, 3, 31) and q1) or
+                (target == date(target.year, 9, 30) and q3))))
     if not expected:
         return 0
     # Full-length reports are preferred over preliminary results announcements.
@@ -149,16 +175,26 @@ def filing_search_windows(period, as_of, *, days=420, width=55):
 
 
 
+def disclosure_market(evidence):
+    """Use the recorded official index source, never the more permissive market."""
+    if not isinstance(evidence, dict):
+        return None
+    source = evidence.get("来源")
+    if not isinstance(source, str):
+        return None
+    return {"巨潮资讯": "A股", "港交所披露易": "港股"}.get(source)
+
+
 def matched_report_notices(evidence, period):
     """Revalidate stored period tags instead of trusting old misclassifications."""
-    if not period:
+    market = disclosure_market(evidence)
+    if not period or market is None:
         return []
     matched = []
     for notice in evidence.get("公告", []):
         try:
             if (notice.get("报告期匹配") == period and
-                    max(period_title_score(notice.get("标题", ""), period, market)
-                        for market in ("港股", "A股")) >= 100):
+                    period_title_score(notice.get("标题", ""), period, market) >= 100):
                 matched.append(notice)
         except (TypeError, ValueError):
             continue

@@ -21,7 +21,15 @@ LIMITED = re.compile(r'<meta name="research-limited-count" content="([0-9]+)">')
 TOTAL = re.compile(r'<meta name="research-total-count" content="([0-9]+)">')
 
 
-def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None, ai_skipped=False):
+def _single_meta(report_html, name):
+    """Read one canonical renderer marker; duplicates fail closed."""
+    values = re.findall(r'<meta name="' + re.escape(name) + r'" content="([^"]*)">',
+                        report_html or "")
+    return values[0] if len(values) == 1 else None
+
+
+def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None, ai_skipped=False,
+                       review_required=False, previous_status=None):
     """Return status with exact full-minute snapshot identity."""
     current = str(snapshot.get("updated", "")).strip()
     report = REPORT_SNAPSHOT.search(report_html or "")
@@ -33,7 +41,31 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
     verified_count = int(ok.group(1)) if ok else None
     limited_count = int(limited.group(1)) if limited else 0
     total_count = int(total.group(1)) if total else None
-    if market_state == "weekend":
+    previous = previous_status if isinstance(previous_status, dict) else {}
+    generation = _single_meta(report_html, "research-generation-id")
+    audit_version = _single_meta(report_html, "research-audit-version")
+    was_frozen = previous.get("state") == "review-required" or previous.get("review_required") is True
+    frozen_generation = (generation if review_required else
+                         previous.get("review_frozen_generation", previous.get("research_generation_id")))
+    count_markers = [_single_meta(report_html, name) for name in (
+        "research-approved-count", "research-limited-count", "research-total-count")]
+    counts_valid = (all(value is not None and re.fullmatch(r"[0-9]+", value)
+                        for value in count_markers) and
+                    int(count_markers[2]) == 10 and
+                    int(count_markers[0]) + int(count_markers[1]) <= 10)
+    # Only the current run's success can lift a hold. Never reuse ai_step from
+    # previous status, a content hash, new banners, or a mere skipped refresh.
+    new_audited_generation = (job_outcome == "success" and exact and
+                             audit_version == "evidence-scope-v2" and
+                             bool(generation and re.fullmatch(
+                                 r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}", generation)) and
+                             generation != frozen_generation and counts_valid)
+    frozen = bool(review_required or (was_frozen and not new_audited_generation))
+    if frozen:
+        state, description = ("review-required", "既有报告发现归因与主体范围问题，需重新审核；"
+                              "尚未完成复审，原通过标记不可作为当前核验结论。"
+                              "原计数仅为历史生成记录，未经此次复审确认")
+    elif market_state == "weekend":
         state, description = ("market-weekend", "周末非交易日：保留最近一次有效行情快照，"
                               "未重新选股，也未自动触发AI研究")
     elif market_state == "pre_close":
@@ -75,6 +107,11 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
         "research_approved": verified_count,
         "research_limited": limited_count,
         "research_total": total_count,
+        "review_required": frozen,
+        "review_frozen_generation": frozen_generation if frozen else None,
+        "research_generation_id": generation,
+        "research_audit_version": audit_version,
+        "research_counts_status": "historical-unreviewed" if frozen else "generation-record",
     }
 
 
@@ -140,9 +177,15 @@ def main():
     elif not report_only and screening == "failure":
         market_state = "failed"
     report_html = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
-    state = research_freshness(data, report_html, enabled, outcome,
+    status_path = DOCS / "ai-status.json"
+    previous = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+    if not isinstance(previous, dict):
+        raise ValueError("已有发布状态格式异常，不能安全判断复审冻结状态")
+    state = {**previous, **research_freshness(data, report_html, enabled, outcome,
                                market_state=market_state,
-                               ai_skipped=os.getenv("SKIP_AI", "").lower() == "true")
+                               ai_skipped=os.getenv("SKIP_AI", "").lower() == "true",
+                               review_required=os.getenv("RESEARCH_REVIEW_REQUIRED", "").lower().strip() == "true",
+                               previous_status=previous)}
     rewritten = update_index(home_path.read_text(encoding="utf-8"), state,
                              has_report=bool(report_html))
     home_path.write_text(rewritten, encoding="utf-8")
