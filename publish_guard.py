@@ -21,7 +21,7 @@ LIMITED = re.compile(r'<meta name="research-limited-count" content="([0-9]+)">')
 TOTAL = re.compile(r'<meta name="research-total-count" content="([0-9]+)">')
 
 
-def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None):
+def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None, ai_skipped=False):
     """Return status with exact full-minute snapshot identity."""
     current = str(snapshot.get("updated", "")).strip()
     report = REPORT_SNAPSHOT.search(report_html or "")
@@ -36,9 +36,14 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
     if market_state == "weekend":
         state, description = ("market-weekend", "周末非交易日：保留最近一次有效行情快照，"
                               "未重新选股，也未自动触发AI研究")
+    elif market_state == "pre_close":
+        state, description = ("market-awaiting-close", "尚未到北京时间17:00收盘发布窗口：保留旧快照，"
+                              "未重新选股，也未自动触发AI研究；这不是行情源故障")
     elif market_state == "failed":
         state, description = ("market-unavailable", "行情数据源故障：本次选股未成功，"
                               "保留旧快照；未对其重新生成AI研究")
+    elif ai_skipped and job_outcome == "skipped":
+        state, description = ("skipped", "本次按要求跳过AI研究；未生成新报告，旧报告仅供历史查阅")
     elif not ai_enabled:
         state, description = "disabled", "AI自动研究当前关闭；如有研究页，只显示历史报告"
     elif job_outcome != "success":
@@ -124,16 +129,20 @@ def main():
     report_only = os.getenv("REPORT_ONLY", "false").lower() == "true"
     screening = os.getenv("SCREENING_OUTCOME", "").strip()
     weekday = os.getenv("TRADING_WEEKDAY", "").strip()
+    ready = os.getenv("MARKET_READY", "").strip()
     # report_only deliberately uses the last published quote snapshot.
     # On a weekend or real market outage no new financial report is generated.
     market_state = None
     if not report_only and weekday == "false":
         market_state = "weekend"
+    elif not report_only and weekday == "true" and ready == "false":
+        market_state = "pre_close"
     elif not report_only and screening == "failure":
         market_state = "failed"
     report_html = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
     state = research_freshness(data, report_html, enabled, outcome,
-                               market_state=market_state)
+                               market_state=market_state,
+                               ai_skipped=os.getenv("SKIP_AI", "").lower() == "true")
     rewritten = update_index(home_path.read_text(encoding="utf-8"), state,
                              has_report=bool(report_html))
     home_path.write_text(rewritten, encoding="utf-8")
@@ -152,3 +161,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
