@@ -20,6 +20,8 @@ on:
       - 'market_schedule.py'
       - 'market_quality.py'
       - 'market_probe.py'
+      - 'market_transport.py'
+      - '.github/workflows/market-probe.yml'
       - 'requirements.txt'
       - '.github/workflows/daily.yml'
       - 'tests/**'

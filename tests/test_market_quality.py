@@ -129,10 +129,10 @@ class DataQualityTests(unittest.TestCase):
         good = quotes()
         bad = good.drop(columns=["流通市值"])
         with patch.object(picker, "ak", object()), patch.object(
-            picker, "fetch_em_market", return_value=bad
+            picker, "fetch_em_market", side_effect=[bad, good]
         ), patch.object(picker.time, "sleep", return_value=None):
-            result = picker.fetch_market("A股", [], "", "A", lambda: good, lambda: bad)
-            self.assertEqual(result.attrs["quality"]["行情来源"], "AKShare 东财")
+            result = picker.fetch_market("港股", [], "", "HK", None, lambda: bad)
+            self.assertEqual(result.attrs["quality"]["行情来源"], "东财港股原始字段（AKShare传输）")
             self.assertEqual(len(result), 3500)
 
     def test_bad_source_never_publishes_fake_scores(self):

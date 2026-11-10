@@ -3,13 +3,13 @@
 A 股 + 港股多因子选股（免费云端版）
 
 每天收盘后由 GitHub Actions 定时运行：
-1. 用 AKShare 免费接口拉取 A 股 / 港股实时行情（东方财富源优先，新浪源兜底）
+1. 拉取东方财富原始字段行情；A 股限流即停，不使用字段不全的新浪榜单
 2. 规则化多因子打分（趋势 / 活跃度 / 估值 / 规模），各市场分别取 Top 20
 3. 生成中文网页 docs/index.html（供 GitHub Pages 发布）
 
 注意：这是规则化评分，不是大语言模型分析；结果仅供学习参考，不构成投资建议。
 东方财富接口会对云端共享 IP 限流，本脚本直调其行情接口：慢速分页、
-轮换多台行情服务器，失败再依次试 AKShare 东财源、新浪源；仍失败则
+A 股使用有请求预算的单次新连接，疑似限流停止本轮所有同源请求；失败则
 本次不覆盖旧页面（保留上一次结果和更新时间），并在日志中写明原因。
 """
 
@@ -19,6 +19,7 @@ import sys
 import time
 from html import escape as escape_html
 
+from market_transport import EastmoneyBudget, ProviderCooldown
 from market_quality import MarketDataQualityError, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
 from peer_fundamentals import candidate_pool
@@ -187,30 +188,49 @@ def fetch_em_market(label, hosts, fs, market, get=None):
             source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")
             df.attrs["quality"] = validate_market_data(df, label, source)
             return df
+        except ProviderCooldown:
+            raise
         except Exception as e:  # noqa: BLE001
             last_err = e
             print(f"[{label}] 服务器 {host or 'push2'} 失败：{str(e)[:150]}", flush=True)
     raise RuntimeError(f"东财直连全部服务器失败：{last_err}")
 
 
+def _ak_em_single_get(url, **kwargs):
+    # One physical request per budgeted call. Never hide nested retries.
+    from akshare.utils import http
+    return http.request_with_retry(
+        "get", url, fresh_session=True, max_retries=1, **kwargs)
+
+
+def fetch_a_market(label, hosts, fs):
+    """A股全字段、限流即停；AKShare只作传输，不是独立备用数据源。"""
+    get = _ak_em_single_get if ak is not None else requests.get
+    budget = EastmoneyBudget(get)
+    try:
+        frame = fetch_em_market(label, hosts, fs, "A", get=budget)
+        frame = _standardize(frame)
+        source = "东财A股原始字段/" + ("AKShare单次新连接" if ak is not None else "requests")
+        frame.attrs["quality"] = validate_market_data(frame, label, source)
+        frame.attrs["quality"]["请求次数"] = budget.requests
+        return frame
+    except Exception as exc:
+        raise RuntimeError(
+            "A股 未找到字段完整且合格的行情源；"
+            "不重试同源AKShare全市场/分市场；新浪缺少必要评分字段，不能作为等价备用源。"
+            f"本轮东财请求 {budget.requests} 次：{exc}"
+        ) from exc
+
+
 def fetch_market(label, hosts, fs, market, ak_primary, ak_fallback):
     """逐源尝试完整行情；字段质量不达标则继续备用源，全部失败保留旧榜单。"""
+    if market == "A":
+        return fetch_a_market(label, hosts, fs)
     waits = _retry_waits() or [0]
     attempts = [("东财直连", lambda: fetch_em_market(label, hosts, fs, market))]
     if ak is not None:
-        if market == "HK":
-            attempts.append(("东财港股原始字段（AKShare传输）", lambda: fetch_em_market(
-                label, hosts, fs, market, get=_ak_em_get)))
-        else:
-            attempts.append(("AKShare 东财", ak_primary))
-        if market == "A":
-            def regional_quotes():
-                # Try smaller Eastmoney market segments when the all-market request fails.
-                funcs = ("stock_sh_a_spot_em", "stock_sz_a_spot_em", "stock_bj_a_spot_em")
-                if not all(hasattr(ak, name) for name in funcs):
-                    raise RuntimeError("当前 AKShare 不具备全部 A 股分市场接口")
-                return pd.concat([getattr(ak, name)() for name in funcs], ignore_index=True)
-            attempts.append(("AKShare 沪深京分市场", regional_quotes))
+        attempts.append(("东财港股原始字段（AKShare传输）", lambda: fetch_em_market(
+            label, hosts, fs, market, get=_ak_em_get)))
         if ak_fallback is not None:
             attempts.append(("AKShare 新浪（需字段质量核验）", ak_fallback))
     last_err = None
