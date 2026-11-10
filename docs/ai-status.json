@@ -1,12 +1,12 @@
 {
-  "state": "market-unavailable",
-  "description": "行情数据源故障：本次选股未成功，保留旧快照；未对其重新生成AI研究",
-  "snapshot": "2026-11-06 23:25",
-  "report_snapshot": "2026-11-06 23:25",
-  "ai_step": "skipped",
-  "market_state": "failed",
+  "state": "partial",
+  "description": "本期研究已更新，1/10只有逐字证据研究，另有7只条件性研究",
+  "snapshot": "2026-11-10 17:58",
+  "report_snapshot": "2026-11-10 17:58",
+  "ai_step": "success",
+  "market_state": "not_rechecked",
   "research_approved": 1,
-  "research_limited": 5,
+  "research_limited": 7,
   "research_total": 10,
-  "recorded_utc": "2026-11-10T05:15:10+00:00"
+  "recorded_utc": "2026-11-10T10:09:55+00:00"
 }
