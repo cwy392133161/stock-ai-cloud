@@ -141,6 +141,34 @@ EXTERNAL_INSTRUCTION = re.compile(
 )
 
 
+# A literal sentence without an entity subject can describe a segment rather
+# than the issuer (e.g. a CRDMO paragraph in a diversified group's report).
+# Do not promote it from a located quote to issuer-level claim evidence.
+ISSUER_SUBJECT = re.compile(r"^(?:本集[团團]|本公司|公司|集[团團]|Thegroup|Thecompany)" , re.I)
+SEGMENT_SCOPE = re.compile(r"分部|分[类類]業務|子公司|附[属屬]公司|[业業][务務]|控股企[业業]|控股公司|旗下|事业部|事業部|segment|subsidiar", re.I)
+
+
+def issuer_claim_scope(quote, notices, citation):
+    """Conservative admissibility, not semantic entailment or group proof.
+
+    Absent subject or segment context needs human review. Never infer scope
+    from the report's issuer, title, page number, or a model-supplied label.
+    """
+    normalized = _normalized(quote)
+    if not ISSUER_SUBJECT.search(normalized) or SEGMENT_SCOPE.search(normalized):
+        return False
+    for notice in notices:
+        for page in notice.get("正文摘录", []):
+            if citation == f"{notice.get('编号')} p{page.get('页')}":
+                passage = _normalized(page.get("摘录", ""))
+                # Deliberately fail closed when the available passage mixes
+                # issuer and segment context. Even an explicit group subject
+                # cannot establish consolidated scope without fuller context.
+                if normalized in passage and SEGMENT_SCOPE.search(passage):
+                    return False
+    return True
+
+
 def validate_source_claim(entry, notices):
     """Publish a disclosure claim ONLY as a direct quotation, not a paraphrase.
 
@@ -165,6 +193,8 @@ def validate_source_claim(entry, notices):
     source = validate_source_quote(entry, notices)
     if not source:
         return None
+    if not issuer_claim_scope(quote, notices, source["引用"]):
+        return None
     typ = entry.get("type")
     if typ not in ("直接披露", "经营原因"):
         return None
@@ -174,6 +204,7 @@ def validate_source_claim(entry, notices):
         **source,
         "主张原文": label,
         "主张类别": typ,
+        "主体范围": "原句明示公司或集团主体；不据此认证合并口径或支持正文推断",
         "证据校验": "主张与核对后的原文短引逐字一致，未采用AI改写；仍需人工复核原文语境",
     }
 

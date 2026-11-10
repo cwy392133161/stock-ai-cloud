@@ -4,7 +4,7 @@ A PDF link is not a verified financial figure, a citation tag is not proof
 that a sentence is entailed by a passage, and a peer PE median is not a DCF.
 """
 from datetime import date
-from period_reports import matched_report_notices, period_title_score
+from period_reports import matched_report_notices, period_title_score, disclosure_market
 
 
 def evidence_quality(finance, disclosure, valuation, snapshot_date):
@@ -41,9 +41,9 @@ def evidence_quality(finance, disclosure, valuation, snapshot_date):
             # The exact latest financial period being released before the
             # snapshot must be supported by an independent official index.
             report = evidence.get("对应报告期财报") or {}
-            if (report.get("报告期") != current_period or not report.get("公告日期")
-                    or max(period_title_score(report.get("标题", ""), current_period, market)
-                           for market in ("港股", "A股")) <= 0):
+            market = disclosure_market(evidence)
+            if (market is None or report.get("报告期") != current_period or not report.get("公告日期")
+                    or period_title_score(report.get("标题", ""), current_period, market) <= 0):
                 not_future = False
             else:
                 not_future = not_future and date.fromisoformat(str(report["公告日期"])[:10]) <= snapshot
