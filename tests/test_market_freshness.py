@@ -67,4 +67,19 @@ class HKFreshnessTests(unittest.TestCase):
             picker.fetch_em_market('港股',['delay'],'','HK')
         self.assertIs(fetch.call_args.kwargs['get'],picker._ak_em_get)
 
+    def test_old_same_day_illiquid_quotes_do_not_disqualify_fresh_candidates(self):
+        df=frame()
+        df.loc[:999,'成交额']=1000
+        df.loc[:999,'f124']=NOW.replace(hour=9).timestamp()
+        result=validate_delayed_hk_times(df,NOW)
+        self.assertEqual(result.attrs['freshness']['可入榜证券数'],500)
+        self.assertEqual(len(picker.score_hk(result)),500)
+
+    def test_previous_day_illiquid_active_quotes_still_reject_snapshot(self):
+        df=frame()
+        df.loc[:999,'成交额']=1000
+        df.loc[:999,'f124']=(NOW-timedelta(days=1)).timestamp()
+        with self.assertRaisesRegex(MarketDataQualityError,'当日报价'):
+            validate_delayed_hk_times(df,NOW)
+
 if __name__=='__main__': unittest.main()

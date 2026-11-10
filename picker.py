@@ -194,7 +194,7 @@ def fetch_em_market(label, hosts, fs, market, get=None):
             page_get = _ak_em_get if host == "delay" and get is None and ak is not None else get
             df = fetch_em_clist(host, fs, market, get=page_get)
             if market == "HK":
-                df = validate_delayed_hk_times(df)
+                df = validate_delayed_hk_times(df, min_amount=MIN_AMOUNT_HK, min_float_cap=MIN_FLOAT_CAP_HK)
             source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")
             df.attrs["quality"] = validate_market_data(df, label, source)
             df.attrs["quality"].update(df.attrs.get("freshness", {}))
