@@ -9,6 +9,7 @@ on:
       - 'finance.py'
       - 'financial_history.py'
       - 'research_brief.py'
+      - 'cash_profit_observations.py'
       - 'research_quality.py'
       - 'peer_valuation.py'
       - 'peer_fundamentals.py'

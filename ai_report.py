@@ -13,7 +13,7 @@ from finance_facts import financial_comparison
 from research_brief import build_research_brief
 from evidence_guard import SECTIONS, decode_report, verified_quotes, verified_claims
 from peer_fundamentals import analyze_peer_financials
-from research_differentiation import duplicate_reports
+from research_differentiation import duplicate_reports, prose_similarity
 from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -270,6 +270,41 @@ DISCLOSURE_ATTRIBUTION = re.compile(
     r"(?:根据|根據|据|據|按).{0,12}(?:公告|财报|財報|报告|報告)")
 
 
+# Normalize for checks only; retain the author's original wording on output.
+# This is a bounded script-variant map, not a semantic translation engine.
+TRADITIONAL_FACT_CHARS = str.maketrans(dict(pair for pair in (
+    "團团", "業业", "營营", "層层", "發发", "當当", "實实", "現现", "經经",
+    "獲获", "確确", "認认", "續续", "長长", "顯显", "轉转", "虧亏", "潤润",
+    "淨净", "歸归", "調调", "資资", "產产", "負负", "債债", "於于", "領领",
+    "後后", "為为", "擴扩", "與与", "額额", "訂订", "單单", "規规", "數数",
+    "戶户", "競竞", "優优", "勢势", "術术", "銷销", "穩稳", "約约", "場场",
+    "無无", "應应", "驗验", "對对", "證证", "設设", "來来", "說说", "謂谓",
+    "並并", "聲声", "稱称", "報报", "據据", "幣币", "萬万", "億亿", "險险", "損损", "徑径"
+)))
+RESEARCH_CLAIM_TOPIC = re.compile(
+    r"收入|营收|收益|利润|净利|归母|盈利|亏损|现金|财务费用|毛利|"
+    r"成本|债务|负债|资产|股息|分红|销量|订单|产能|资本开支|"
+    r"revenue|profit|cash.flow|margin|debt|dividend|capital.expenditure", re.I)
+
+
+def _check_text(text):
+    return unicodedata.normalize("NFKC", str(text)).translate(TRADITIONAL_FACT_CHARS)
+
+
+def relevant_financial_claim(claim):
+    """Cheap topical exclusion, NOT entailment or analysis certification."""
+    text = _check_text(claim)
+    if re.search(r"目录|注册地址|办公地址|联系地址|报告.{0,10}(?:包含|包括|载有|收录)|"
+                 r"table of contents|registered (?:office|address)|contact address|"
+                 r"report.{0,20}(?:contains|includes)", text, re.I):
+        return False
+    observation = re.search(
+        r"[0-9]|增长|下降|增加|减少|改善|扩大|收窄|亏损|盈利|净流[入出]|"
+        r"主要系|主要由于|归因|上升|下跌|下降|持平|"
+        r"increase|decrease|decline|growth|loss|profit|attributable", text, re.I)
+    return bool(RESEARCH_CLAIM_TOPIC.search(text) and observation)
+
+
 def review_research_hypotheses(text):
     """Keep conditional, falsifiable interpretation; reject unsupported facts.
 
@@ -282,7 +317,7 @@ def review_research_hypotheses(text):
         if not paragraph.strip():
             continue
         for sentence in re.findall(r"[^。！？!?；;]+[。！？!?；;]?", paragraph):
-            cleaned = unicodedata.normalize("NFKC", sentence).strip()
+            cleaned = _check_text(sentence).strip()
             if not cleaned:
                 continue
             # No model-originated numbers, uncited events, targets or claims
@@ -298,20 +333,25 @@ def review_research_hypotheses(text):
             # retroactively convert it into a hypothesis. For instance,
             # "公司订单持续增长，但仍需关注风险" states an unverified
             # fact even though the final clause is cautious.
-            def qualified_before(start):
-                prior = cleaned[:start]
-                return bool(re.search(
-                    r"(?:若|如果|假设|倘若|是否|能否|未来|下期|下一期|"
-                    r"待核实|待验证|需要核验|需要确认|不能证明|无法认定|"
-                    r"不能说明|不足以说明|无法证明|不代表|不意味着|并不意味着|"
-                    r"不应推断|不能推断|不能认定)"
-                    r".{0,55}$", prior
-                ))
-            for rule in (UNSUPPORTED_OPERATING_FACT, FIRM_FACT_MARKER,
-                         FINANCIAL_DIRECTION, RISKY_RELATIVE_ASSERTION):
-                match = rule.search(cleaned)
-                if match and not qualified_before(match.start()):
-                    blocked = True
+            # A conditional belongs to its own clause, not all later
+            # assertions in the sentence. Commas and contrast/addition markers
+            # reset scope. False negatives stay questions for human review.
+            clauses = re.split(r"[,，:：]|(?:但是|但|然而|实际上|事实上|同时|此外|并且|而且)", cleaned)
+            for clause in clauses:
+                def qualified_before(start):
+                    prior = clause[:start]
+                    return bool(re.search(
+                        r"(?:若|如果|假设|倘若|是否|能否|未来|下期|下一期|"
+                        r"待核实|待验证|需要核验|需要确认|不能证明|无法认定|"
+                        r"不能说明|不足以说明|无法证明|不代表|不意味着|并不意味着|"
+                        r"不应推断|不能推断|不能认定)"
+                        r".{0,55}$", prior
+                    ))
+                for rule in (UNSUPPORTED_OPERATING_FACT, FIRM_FACT_MARKER,
+                             FINANCIAL_DIRECTION, RISKY_RELATIVE_ASSERTION):
+                    for match in rule.finditer(clause):
+                        if not qualified_before(match.start()):
+                            blocked = True
             if blocked:
                 removed += 1
                 continue
@@ -342,6 +382,17 @@ def assess_model_research(content, brief, notices):
     removed_sentences = sum(pair[1] for pair in sanitized.values())
     quotes = verified_quotes(parsed["source_quotes"], notices)
     claims = verified_claims(parsed.get("source_claims"), notices)
+    # Four copies of one paragraph are not four independent sections.
+    distinct = []
+    repeated_sections = []
+    for key in SECTIONS:
+        body = sections[key]
+        if len(body.strip()) >= 20 and any(prose_similarity(body, prior) >= 0.85 for prior in distinct):
+            repeated_sections.append(key)
+            sections[key] = ""
+        elif body.strip():
+            distinct.append(body)
+    relevant_claims = [c for c in claims if relevant_financial_claim(c["主张原文"])]
     original = sum(len(parsed["sections"][key].strip()) for key in SECTIONS)
     kept = sum(len(sections[key]) for key in SECTIONS)
     valid_sections = sum(len(sections[key].strip()) >= 20 for key in SECTIONS)
@@ -350,6 +401,8 @@ def assess_model_research(content, brief, notices):
         "引用候选数": len(parsed["source_quotes"]),
         "已核对原文短引数": len(quotes),
         "逐字证据主张数": len(claims),
+        "研究相关证据主张数": len(relevant_claims),
+        "重复章节": repeated_sections,
         "各章节保留字数": {key: len(sections[key]) for key in SECTIONS},
         "丢弃句数": removed_sentences,
     })
@@ -363,6 +416,8 @@ def assess_model_research(content, brief, notices):
     # original paragraphs. A high discard percentage lowers *completeness*,
     # not the trustworthiness of statements which survived the checks.
     # Incomplete source/period metadata remains a hard failure above.
+    if repeated_sections:
+        result["限制"] = "重复章节不计作独立研究内容：" + "、".join(repeated_sections)
     if valid_sections < 2 or kept < 95:
         result["原因"].append("可展示研究内容不足两个独立章节或95字")
     if result["原因"]:
@@ -371,7 +426,7 @@ def assess_model_research(content, brief, notices):
     result["原文短引"] = quotes
     result["直接证据主张"] = claims
     retained_ratio = (kept / original) if original else 0
-    if claims and valid_sections == 4 and kept >= 160 and retained_ratio >= 0.55:
+    if relevant_claims and valid_sections == 4 and kept >= 160 and retained_ratio >= 0.55:
         result["状态"] = "解释性研究已通过基础发布门槛"
         result["证据级别"] = "程序验证的财务指标与逐字核对的官方PDF短引；分析解释仍属于推断"
     elif valid_sections < 3 or retained_ratio < 0.40:
@@ -383,8 +438,8 @@ def assess_model_research(content, brief, notices):
     else:
         result["状态"] = "条件性研究（原文事实证据不足）"
         result["证据级别"] = "基于已核对报告期财务数据的条件性研究；不能推断无依据的经营事实"
-        if not claims:
-            result["限制"] = "官方PDF未提供可逐字匹配的直接事实主张，禁止把研究假设当作公司披露"
+        if not relevant_claims:
+            result["限制"] = "官方PDF未提供与经营财务主题相关的逐字事实主张；仅有位置匹配或无关事实不能支持研究判断"
         elif valid_sections < 4:
             result["限制"] = "部分研究章节信息不足，未提供完整逐字证据研究"
     return result
