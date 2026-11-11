@@ -53,29 +53,22 @@ class RawQuoteTests(unittest.TestCase):
             d = picker.fetch_em_market('港股', ['72', '81'], '', 'HK')
         self.assertEqual(d.attrs['quality']['行情来源'], '东财原始字段/81')
 
-    def test_hk_fallback_uses_raw_transport_not_lossy_projection(self):
+    def test_hk_uses_one_budget_and_never_lossy_projection(self):
         good = quotes(1500)
         lossy = Mock(side_effect=AssertionError('must not call projected API'))
         with patch.object(picker, 'ak', object()), patch.object(picker, 'fetch_em_market',
-            side_effect=[TimeoutError(), good]) as fetch, patch.object(picker.time, 'sleep'):
-            d = picker.fetch_market('港股', ['72'], '', 'HK', lossy, None)
-        self.assertEqual(fetch.call_args.kwargs['get'], picker._ak_em_get)
+            return_value=good) as fetch:
+            d = picker.fetch_market('港股', ['72'], '', 'HK', lossy, lossy)
+        self.assertIsInstance(fetch.call_args.kwargs['get'], picker.EastmoneyBudget)
+        self.assertEqual(fetch.call_count, 1)
         self.assertEqual(len(d), 1500)
         lossy.assert_not_called()
 
-    def test_ak_transport_retries_timeout_with_bounded_fresh_sessions(self):
-        from akshare.utils import http
-        expected = response([{'f12': '1'}], 1)
-        expected.status_code = 200
-        with patch.object(http.Session, 'request', side_effect=[requests.Timeout(), expected]) as req, \
-             patch.object(http.time, 'sleep'):
-            self.assertIs(picker._ak_em_get('https://72.push2.eastmoney.com/api/qt/clist/get', timeout=20), expected)
-        self.assertEqual(req.call_count, 2)
-
-    def test_ak_transport_stops_after_three_timeouts(self):
-        from akshare.utils import http
-        with patch.object(http.Session, 'request', side_effect=requests.Timeout()) as req, \
-             patch.object(http.time, 'sleep'):
-            with self.assertRaises(requests.Timeout):
-                picker._ak_em_get('https://72.push2.eastmoney.com/api/qt/clist/get', timeout=20)
-        self.assertEqual(req.call_count, 3)
+    def test_hk_raw_failure_never_restarts_transport(self):
+        projected, sina = Mock(), Mock()
+        with patch.object(picker, 'fetch_em_market', side_effect=requests.Timeout()) as fetch:
+            with self.assertRaisesRegex(RuntimeError, '不是等价备用源'):
+                picker.fetch_market('港股', ['delay', '72'], '', 'HK', projected, sina)
+        self.assertEqual(fetch.call_count, 1)
+        projected.assert_not_called()
+        sina.assert_not_called()

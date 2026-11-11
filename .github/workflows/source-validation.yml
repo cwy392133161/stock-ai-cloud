@@ -1,7 +1,7 @@
 name: Read-only source validation (no AI)
 on:
   push:
-    branches: [fix/tencent-a-fallback]
+    branches: [fix/tencent-a-fallback, fix/hk-shared-budget]
   workflow_dispatch:
 permissions:
   contents: read
