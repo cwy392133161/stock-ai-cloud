@@ -9,6 +9,7 @@ from peer_valuation import valuation_context
 from research_quality import evidence_quality
 from period_reports import matched_report_notices
 from research_differentiation import focal_question
+from cash_profit_observations import cash_profit_observation
 
 PERCENT = re.compile(
     r"^([+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)"
@@ -138,6 +139,12 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         )
     if not historical:
         historical.append("缺少两个可比较年度的同报告季数据，不能推断三年趋势")
+
+    cash_observation = cash_profit_observation(finance, as_of or stock.get("行情快照日期"))
+    if cash_observation:
+        counterarguments.insert(0, cash_observation["观察"])
+        # Replace the generic profitability follow-up, retaining source repair.
+        checkpoints[1] = cash_observation["验证点"]
 
     valuation = valuation_context(stock)
     relative = ["估值依据：" + valuation["状态"]]

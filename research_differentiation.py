@@ -60,12 +60,20 @@ def focal_question(stock, finance, evidence=None, peer=None):
         label, why = "单侧财务证据", "只有部分增长指标可验证，不能据单项指标建立完整经营增长逻辑"
         follow = "补足缺失的配套财务科目并核对同一报告期间"
 
-    if debt is not None and debt > 80 and label in ("增长质量与可持续性", "资料边界核查"):
+    industry = str(stock.get("行业") or "").strip()
+    if industry.lower() in ("未知", "未知行业", "未分类", "未核实", "—", "-", "nan", "none", "null", "n/a", "unknown"):
+        industry = ""
+    financial_industry = bool(re.search(r"银行|銀行|保险|保險|证券|證券|金融|bank|insurance|financial|securities|brokerage", industry, re.I))
+    if debt is not None and debt > 80 and industry and not financial_industry and label in ("增长质量与可持续性", "资料边界核查"):
         label, why = "高负债与增长质量", "资产负债率较高，应重点核验现金流与偿债安排，不直接推断违约风险"
         follow = "下一期披露中核验债务结构及经营现金流"
     elif roe is not None and roe < 0 and label in ("增长质量与可持续性", "资料边界核查"):
         label, why = "负ROE与盈利质量", "当前ROE为负，应核实利润绝对额及权益变动来源"
         follow = "核对下期ROE、归母净利润及相关权益口径"
+
+    if debt is not None and debt > 80 and (financial_industry or not industry):
+        follow += ("；金融行业需核验行业适用的资本、流动性和资产质量指标，不套用一般企业资产负债率阈值"
+                   if financial_industry else "；行业尚未核实，不据通用资产负债率阈值判断高杠杆风险")
 
     if peer and peer.get("状态") == "有限同行财务对照（并非投资评级）":
         follow += "；同步观察同行样本的同报告期数据变化"
