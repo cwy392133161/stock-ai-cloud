@@ -37,7 +37,7 @@ class MarketOutageTests(unittest.TestCase):
         state = publish_guard.research_freshness(
             snapshot, report, True, "skipped", market_state="failed")
         self.assertEqual(state["state"], "market-unavailable")
-        self.assertIn("旧快照", state["description"])
+        self.assertIn("旧行情", state["description"])
         index = '<h1>旧选股榜</h1><p class="ai-nav"><a href="./ai.html">旧报告</a></p>'
         updated = publish_guard.update_index(index, state, True)
         self.assertIn('data-report-state="market-unavailable"', updated)

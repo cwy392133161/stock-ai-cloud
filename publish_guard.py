@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import sys
+from html import escape
 from datetime import datetime, timezone
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -28,11 +29,69 @@ def _single_meta(report_html, name):
     return values[0] if len(values) == 1 else None
 
 
+def market_freshness(current, market_state, screening_outcome, previous):
+    """Separate this run's gate from the unresolved result of actual screening.
+
+    A skipped job, weekend, pre-close check or report-only run cannot establish
+    that the quote source recovered. Only successful screening with a newer
+    snapshot can clear a known failure.
+    """
+    prior_failure = (previous.get("market_state") == "failed" or
+                     previous.get("last_screening_outcome") == "failure")
+    failure_snapshot = previous.get("market_failure_snapshot") or previous.get("snapshot", "")
+    if market_state == "failed" or screening_outcome == "failure":
+        # Keep the original failure's recovery boundary across later skipped,
+        # unchanged or regressed snapshots. A new failure may only raise it.
+        valid = []
+        for value in (failure_snapshot, current):
+            try:
+                valid.append((datetime.strptime(value, "%Y-%m-%d %H:%M"), value))
+            except (TypeError, ValueError):
+                pass
+        failure_snapshot = max(valid)[1] if valid else None
+    advanced = False
+    try:
+        advanced = (datetime.strptime(current, "%Y-%m-%d %H:%M") >
+                    datetime.strptime(failure_snapshot, "%Y-%m-%d %H:%M"))
+    except (TypeError, ValueError):
+        pass
+    recovered = screening_outcome == "success" and advanced
+    failed = (market_state == "failed" or screening_outcome == "failure" or
+              (prior_failure and not recovered))
+    effective = "failed" if failed else ("updated" if screening_outcome == "success"
+                                         else market_state or "not_rechecked")
+    if effective == "failed":
+        description = ("最近一次行情更新失败后尚无更新的成功快照；仍显示旧行情，"
+                       "不能视作本期结果或行情源已恢复")
+    elif effective == "updated":
+        description = "本次选股步骤成功；行情时点以实际快照为准，不代表实时行情"
+    else:
+        description = "本次未重新检查行情源；保留旧快照，不能据此判断行情源已恢复"
+    if market_state == "pre_close":
+        description += "。本次因未到北京时间17:00发布窗口跳过选股"
+    elif market_state == "weekend":
+        description += "。本次因北京时间周末跳过选股"
+    elif screening_outcome not in ("success", "failure"):
+        description += "。本次没有执行选股"
+    return {
+        "market_state": effective,
+        "market_check_state": market_state or "not_rechecked",
+        "market_failure_snapshot": failure_snapshot if failed else None,
+        "market_description": description,
+        "screening_outcome": screening_outcome or "not_rechecked",
+        "last_screening_outcome": (screening_outcome if screening_outcome in ("success", "failure")
+                                   else previous.get("last_screening_outcome") or
+                                   ("failure" if prior_failure else None)),
+    }
+
+
 def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None, ai_skipped=False,
-                       review_required=False, previous_status=None):
+                       review_required=False, previous_status=None, screening_outcome=None):
     """Return status with exact full-minute snapshot identity."""
     current = str(snapshot.get("updated", "")).strip()
-    report = REPORT_SNAPSHOT.search(report_html or "")
+    # Status decoration is not source evidence for the report's original date.
+    undecorated = BANNER.sub("", MARKET_BANNER.sub("", report_html or ""))
+    report = REPORT_SNAPSHOT.search(undecorated)
     report_date = report.group(1).strip() if report else None
     exact = bool(current and report_date and current == report_date)
     ok = APPROVED.search(report_html or "")
@@ -42,6 +101,8 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
     limited_count = int(limited.group(1)) if limited else 0
     total_count = int(total.group(1)) if total else None
     previous = previous_status if isinstance(previous_status, dict) else {}
+    market = market_freshness(current, market_state, screening_outcome, previous)
+    market_state = market["market_state"]
     generation = _single_meta(report_html, "research-generation-id")
     audit_version = _single_meta(report_html, "research-audit-version")
     was_frozen = previous.get("state") == "review-required" or previous.get("review_required") is True
@@ -70,10 +131,10 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
                               "未重新选股，也未自动触发AI研究")
     elif market_state == "pre_close":
         state, description = ("market-awaiting-close", "尚未到北京时间17:00收盘发布窗口：保留旧快照，"
-                              "未重新选股，也未自动触发AI研究；这不是行情源故障")
+                              "未重新选股，也未自动触发AI研究；本次未检查行情源是否可用")
     elif market_state == "failed":
-        state, description = ("market-unavailable", "行情数据源故障：本次选股未成功，"
-                              "保留旧快照；未对其重新生成AI研究")
+        state, description = ("market-unavailable", "行情更新失败后尚无更新的成功快照："
+                              "保留旧行情；研究报告是否更新须另看报告时点与AI生成记录")
     elif ai_skipped and job_outcome == "skipped":
         state, description = ("skipped", "本次按要求跳过AI研究；未生成新报告，旧报告仅供历史查阅")
     elif not ai_enabled:
@@ -103,7 +164,7 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
         "snapshot": current,
         "report_snapshot": report_date,
         "ai_step": str(job_outcome),
-        "market_state": market_state or "not_rechecked",
+        **market,
         "research_approved": verified_count,
         "research_limited": limited_count,
         "research_total": total_count,
@@ -129,10 +190,25 @@ def update_index(index_html, status, has_report):
     )
     if not NAV.search(index_html):
         raise ValueError("无法定位首页AI状态导航，拒绝静默发布错误状态")
-    return NAV.sub(lambda _: text, index_html, count=1)
+    return update_market_banner(NAV.sub(lambda _: text, index_html, count=1), status)
 
 
 BANNER = re.compile(r'<p class="research-publication-alert"[^>]*>.*?</p>', re.S)
+MARKET_BANNER = re.compile(r'<p class="market-publication-alert"[^>]*>.*?</p>', re.S)
+
+
+def update_market_banner(page_html, status):
+    """Market outages remain visible independently of the AI review hold."""
+    page_html = MARKET_BANNER.sub("", page_html)
+    header = re.search(r"</h1>", page_html)
+    if not header:
+        raise ValueError("页面缺少标题，无法显式标记行情状态")
+    banner = ('<p class="market-publication-alert" data-market-state="' +
+              escape(status.get("market_state", "not_rechecked"), quote=True) +
+              '" style="border:1px solid #b45309;padding:12px;border-radius:8px">'
+              '<b>行情更新状态：</b>' + escape(status.get("market_description", "本次未复查行情")) +
+              '。榜单数据时点：' + escape(status["snapshot"]) + '（北京时间）。</p>')
+    return page_html[:header.end()] + banner + page_html[header.end():]
 
 
 def update_report_banner(report_html, status):
@@ -154,7 +230,7 @@ def update_report_banner(report_html, status):
     header = re.search(r"</h1>", report_html)
     if not header:
         raise ValueError("AI页面缺少标题，无法显式标记旧报告")
-    return report_html[:header.end()] + banner + report_html[header.end():]
+    return update_market_banner(report_html[:header.end()] + banner + report_html[header.end():], status)
 
 
 def main():
@@ -170,12 +246,12 @@ def main():
     # report_only deliberately uses the last published quote snapshot.
     # On a weekend or real market outage no new financial report is generated.
     market_state = None
-    if not report_only and weekday == "false":
+    if not report_only and screening == "failure":
+        market_state = "failed"
+    elif not report_only and weekday == "false":
         market_state = "weekend"
     elif not report_only and weekday == "true" and ready == "false":
         market_state = "pre_close"
-    elif not report_only and screening == "failure":
-        market_state = "failed"
     report_html = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
     status_path = DOCS / "ai-status.json"
     previous = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
@@ -185,18 +261,24 @@ def main():
                                market_state=market_state,
                                ai_skipped=os.getenv("SKIP_AI", "").lower() == "true",
                                review_required=os.getenv("RESEARCH_REVIEW_REQUIRED", "").lower().strip() == "true",
-                               previous_status=previous)}
+                               previous_status=previous,
+                               screening_outcome=screening if not report_only else None)}
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if not report_only and screening in ("success", "failure"):
+        state["last_screening_recorded_utc"] = now
     rewritten = update_index(home_path.read_text(encoding="utf-8"), state,
                              has_report=bool(report_html))
     home_path.write_text(rewritten, encoding="utf-8")
     if report_html:
         report_path.write_text(update_report_banner(report_html, state), encoding="utf-8")
-    state["recorded_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    state["recorded_utc"] = now
     (DOCS / "ai-status.json").write_text(
         json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print("AI发布状态:", state["state"], "榜单:", state["snapshot"],
           "AI:", state["report_snapshot"], flush=True)
+    if state["market_state"] == "failed":
+        print("::warning::行情更新仍未恢复：" + state["market_description"], flush=True)
     if enabled and state["state"] != "current":
         print("::warning::AI研究尚未全部通过发布门槛：" + state["description"], flush=True)
     return 0

@@ -114,8 +114,14 @@ jobs:
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
 
-      - name: 标记真实交易日行情故障
-        if: ${{ !inputs.report_only && steps.trading_day.outputs.market_ready == 'true' && steps.screening.outcome == 'failure' }}
+      - name: 标记尚未恢复的行情故障
+        if: ${{ !inputs.report_only }}
         run: |
-          echo "::error::行情源异常：本次排名没有刷新。已发布旧快照警告；请勿将旧行情当作本期新结果。"
-          exit 1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("docs/ai-status.json").read_text(encoding="utf-8"))
+          if status.get("market_state") == "failed":
+              print("::error::最近一次行情更新失败后尚无更新的成功快照。跳过选股不能证明恢复；请勿将旧行情当作本期结果。")
+              raise SystemExit(1)
+          PY
