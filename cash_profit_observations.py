@@ -5,6 +5,7 @@ ownership scopes. This module never treats their ratio as cash conversion.
 """
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from financial_timing import provider_date, timing_evidence, validated_cashflow
 
 
 CASH = "经营现金流净额"
@@ -22,9 +23,8 @@ def _number(raw):
 
 def cash_profit_observation(finance, as_of=None):
     """Return a sourced observation/checkpoint, or nothing on incomplete evidence."""
-    try:
-        snapshot = date.fromisoformat(str(as_of or "")[:10])
-    except ValueError:
+    snapshot = provider_date(as_of)
+    if not snapshot:
         return None
     history = finance.get("历史财务") or {}
     if (finance.get("状态") not in ("可用", "部分可用")
@@ -47,7 +47,7 @@ def cash_profit_observation(finance, as_of=None):
         new, old = date.fromisoformat(current), date.fromisoformat(previous)
     except (ValueError, TypeError):
         return None
-    if (new <= old or (new.month, new.day) != (old.month, old.day)
+    if (new.year != old.year + 1 or (new.month, new.day) != (old.month, old.day)
             or (new.month, new.day) not in ((3, 31), (6, 30), (9, 30), (12, 31))
             or finance.get("期间") != f"{new.year} 年初至报告期末（累计）"):
         return None
@@ -62,15 +62,17 @@ def cash_profit_observation(finance, as_of=None):
                 or record.get("期间") != period[:4] + "-01-01 至 " + period + "（年初累计）"
                 or not record.get("披露时点依据")):
             return None
-        try:
-            disclosed = date.fromisoformat(record["披露时点依据"])
-        except (ValueError, TypeError):
+        timing = timing_evidence(record.get("日期字段"), period, snapshot)
+        if not timing or timing["披露时点依据"] != record["披露时点依据"]:
             return None
-        if disclosed < date.fromisoformat(period) or disclosed > snapshot:
+        cash_source = validated_cashflow(record.get("经营现金流来源"), period, "CNY", snapshot)
+        if not cash_source:
             return None
         for name in (CASH, PROFIT):
             value = _number(pairs[name].get(side))
             if value is None or value != _number((record.get("指标") or {}).get(name)):
+                return None
+            if name == CASH and value != _number(cash_source.get("金额")):
                 return None
             values[(name, side)] = value
     cn, co = values[(CASH, "本期")], values[(CASH, "对比期")]

@@ -2,6 +2,7 @@ import copy
 import unittest
 
 from cash_profit_observations import cash_profit_observation as observe, AMOUNT_TYPE, CASH, PROFIT
+from financial_timing import CASHFLOW_SOURCE
 
 
 def cash_profit_observation(finance):
@@ -14,6 +15,11 @@ def fixture(cash=(200, 400), profit=(380, 100)):
     rows = [{"报告期": p, "币种": "CNY",
              "期间": p[:4] + "-01-01 至 " + p + "（年初累计）",
              "披露时点依据": p[:4] + "-10-29",
+             "日期字段": {"NOTICE_DATE": p[:4] + "-10-29"},
+             "经营现金流来源": {"来源": CASHFLOW_SOURCE, "报告期": p,
+                         "币种": "CNY", "金额": str(cash[i]),
+                         "日期字段": {"NOTICE_DATE": p[:4] + "-10-30"},
+                         "披露时点依据": p[:4] + "-10-30"},
              "指标": {CASH: str(cash[i]), PROFIT: str(profit[i])}}
             for i, p in enumerate(periods)]
     pairs = [{"指标": name, "类型": AMOUNT_TYPE, "报告期": periods[0],
@@ -72,6 +78,36 @@ class CashProfitObservationTests(unittest.TestCase):
         self.assertIsNone(observe(fixture()))
         self.assertIsNone(observe(fixture(), "invalid"))
         self.assertIsNone(observe(fixture(), "2026-10-01"))
+
+    def test_cash_must_keep_its_own_date_amount_and_source(self):
+        for index in (0, 1):
+            for field, value in (
+                ("日期字段", {}), ("日期字段", {"NOTICE_DATE": "invalid"}),
+                ("日期字段", {"NOTICE_DATE": "2026-11-11"}),
+                ("日期字段", {"NOTICE_DATE": "2024-01-01"}),
+                ("日期字段", {"NOTICE_DATE": "2026-10-30", "UPDATE_DATE": "2026-11-11"}),
+                ("日期字段", {"NOTICE_DATE": "2026-10-30", "UPDATE_DATE": "invalid"}),
+                ("金额", "999"), ("金额", "NaN"), ("币种", "HKD"),
+                ("报告期", "2023-09-30"), ("来源", "主要指标"),
+                ("披露时点依据", "2026-11-01"),
+            ):
+                with self.subTest(index=index, field=field, value=value):
+                    f = fixture()
+                    f["历史财务"]["记录"][index]["经营现金流来源"][field] = value
+                    self.assertIsNone(cash_profit_observation(f))
+            f = fixture()
+            del f["历史财务"]["记录"][index]["经营现金流来源"]
+            self.assertIsNone(cash_profit_observation(f))
+
+    def test_indicator_revision_after_snapshot_cannot_hide_behind_notice(self):
+        f = fixture()
+        f["历史财务"]["记录"][0]["日期字段"]["UPDATE_DATE"] = "2026-11-11"
+        self.assertIsNone(cash_profit_observation(f))
+
+    def test_matching_nonadjacent_years_are_not_annual_comparisons(self):
+        import json
+        f = json.loads(json.dumps(fixture()).replace("2025", "2024"))
+        self.assertIsNone(cash_profit_observation(f))
 
     def test_brief_replaces_generic_followup_and_keeps_source_repair(self):
         brief = build_research_brief({}, fixture(), {}, "2026-11-10")
