@@ -159,7 +159,7 @@ class ReviewHoldTests(unittest.TestCase):
             self.assertEqual(first["state"], "review-required")
             self.assertEqual(first["ai_step"], "skipped")
             self.assertEqual(first["audit_note"], "preserve")
-            self.assertEqual(guard.BANNER.sub("", (root / "ai.html").read_text()), raw)
+            self.assertEqual(guard.MARKET_BANNER.sub("", guard.BANNER.sub("", (root / "ai.html").read_text())), raw)
             self.assertEqual((root / "data.json").read_text(), data)
             self.assertIn('data-report-state="review-required"', (root / "index.html").read_text())
             # Ordinary skip + banner rewrite cannot unlock or duplicate banner.
@@ -178,7 +178,7 @@ class ReviewHoldTests(unittest.TestCase):
             last = json.loads((root / "ai-status.json").read_text())
             self.assertEqual(last["state"], "partial")
             self.assertEqual(last["audit_note"], "preserve")
-            self.assertEqual(guard.BANNER.sub("", (root / "ai.html").read_text()), generated)
+            self.assertEqual(guard.MARKET_BANNER.sub("", guard.BANNER.sub("", (root / "ai.html").read_text())), generated)
             self.assertEqual((root / "data.json").read_text(), data)
 
     def test_corrupt_prior_state_is_not_silently_discarded(self):
