@@ -29,7 +29,7 @@ class FinancialHistoryTests(unittest.TestCase):
         frame = pd.DataFrame(records)
         dated = dated_rows(frame, "000690.SZ", pd.Timestamp("2026-11-06"))
         current = dated.loc[dated["_period"] == pd.Timestamp("2026-09-30")].iloc[0]
-        history = assemble_history(dated, current, "A股")
+        history = assemble_history(dated, current, "A股", as_of="2026-11-06")
         self.assertEqual(history["可比同季度年度数"], 4)
         comparable = history["同口径年度对照"]
         revenue = next(item for item in comparable if item["指标"] == "收入")
@@ -48,7 +48,7 @@ class FinancialHistoryTests(unittest.TestCase):
         changed = {**original, "TOTALOPERATEREVE": 900}
         dated = dated_rows(pd.DataFrame([original, changed]), "000690.SZ",
                            pd.Timestamp("2026-11-06"))
-        history = assemble_history(dated, dated.iloc[0], "A股")
+        history = assemble_history(dated, dated.iloc[0], "A股", as_of="2026-11-06")
         self.assertIn("无唯一", history["状态"])
 
     def test_one_cashflow_request_yields_asof_history_without_future(self):
@@ -75,7 +75,7 @@ class FinancialHistoryTests(unittest.TestCase):
             )
         api.assert_called_once_with(symbol="SZ000690")
         self.assertEqual(amount, 500)
-        self.assertEqual({day: Decimal(value) for day, value in history.items()},
+        self.assertEqual({day: Decimal(value["金额"]) for day, value in history.items()},
                          {"2026-09-30": Decimal("500"), "2025-09-30": Decimal("-200")})
 
     def test_hk_only_ratios_with_matching_actual_start_and_end(self):
@@ -90,7 +90,7 @@ class FinancialHistoryTests(unittest.TestCase):
                 "ROE_AVG": 6, "DEBT_ASSET_RATIO": 33,
             })
         dated = dated_rows(pd.DataFrame(records), "00585.HK", pd.Timestamp("2026-11-06"))
-        history = assemble_history(dated, dated.iloc[0], "港股")
+        history = assemble_history(dated, dated.iloc[0], "港股", as_of="2026-11-06")
         self.assertEqual(history["可比同季度年度数"], 2)
         self.assertFalse(any("收入" in r["指标"] and "收入同比" not in r["指标"]
                              for r in history["记录"]))

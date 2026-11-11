@@ -8,6 +8,7 @@ import pandas as pd
 
 from hk_original import fetch_hk_original
 from financial_history import assemble_history
+from financial_timing import CASHFLOW_SOURCE, timing_evidence
 from hk_products import SOURCE_URL
 
 
@@ -106,6 +107,12 @@ def cashflow(hk, code, symbol, row, as_of):
     else:
         frame = ak.stock_cash_flow_sheet_by_report_em(symbol=symbol[-2:] + code)
     all_rows = dated_rows(frame, symbol, as_of)
+    # Cash-flow rows must establish their OWN availability. A same-period
+    # indicator row's notice is not evidence for a separate statement amount.
+    all_rows = all_rows.loc[all_rows.apply(
+        lambda cash_row: timing_evidence(cash_row, cash_row["_period"], as_of) is not None,
+        axis=1,
+    )]
     rows = all_rows.loc[all_rows["_period"] == row["_period"]]
     history = {}
     if hk:
@@ -122,11 +129,17 @@ def cashflow(hk, code, symbol, row, as_of):
         for period, group in relevant.groupby("_period"):
             if len(group) != 1:
                 continue
-            value, issue = metric(group.iloc[0].get(field), "元", None)
+            cash_row = group.iloc[0]
+            value, issue = metric(cash_row.get(field), "元", None)
             if issue is None:
-                history[str(period.date())] = value
+                history[str(period.date())] = {
+                    "金额": value, "报告期": str(period.date()),
+                    "币种": {"人民币": "CNY"}.get(str(cash_row["CURRENCY"]), str(cash_row["CURRENCY"])),
+                    "来源": CASHFLOW_SOURCE,
+                    **timing_evidence(cash_row, period, as_of),
+                }
     if len(rows) != 1:
-        raise FinancialDataError("没有唯一匹配的同口径现金流记录")
+        raise FinancialDataError("没有唯一匹配且披露/修订日期有效的同口径现金流记录")
     return rows.iloc[0][field], history
 
 
@@ -211,6 +224,8 @@ def fetch_financial(market, code, name="", as_of=None, *, directory=None):
                 missing[label] = issue
             else:
                 metrics[label] = f"{value} {currency}（期间合计）"
+                if not hk:
+                    result["经营现金流来源"] = historical_cashflows[result["报告期"]]
     except Exception as exc:
         missing[label] = str(exc) if isinstance(exc, FinancialDataError) else f"现金流量表不可用（{type(exc).__name__}）"
     if hk and currency != "CNY" and re.fullmatch("[A-Z]{3}", currency):
@@ -226,7 +241,7 @@ def fetch_financial(market, code, name="", as_of=None, *, directory=None):
     result["状态"] = ("部分可用" if missing else "可用") if metrics else "无可用指标"
     result["指标"] = metrics
     try:
-        result["历史财务"] = assemble_history(rows, row, market, cashflows=historical_cashflows)
+        result["历史财务"] = assemble_history(rows, row, market, cashflows=historical_cashflows, as_of=as_of)
     except (ValueError, TypeError, KeyError) as exc:
         # History is optional; it must never break existing current-period facts.
         result["历史财务"] = {"状态": f"历史数据不可核实（{type(exc).__name__}）", "记录": [], "同口径年度对照": []}
