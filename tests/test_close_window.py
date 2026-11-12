@@ -36,16 +36,19 @@ class CloseWindowTests(unittest.TestCase):
             status=json.loads((root/'ai-status.json').read_text())
             self.assertEqual(status['state'],'market-awaiting-close')
             self.assertEqual((root/'data.json').read_bytes(),original)
-            self.assertIn('这不是行情源故障',status['description'])
+            self.assertIn('本次未检查行情源是否可用',status['description'])
+            self.assertNotIn('这不是行情源故障',status['description'])
 
     def test_requested_no_ai_is_skipped_not_generation_failure(self):
         status=publish_guard.research_freshness({'updated':'2026-11-10 17:30'},'',True,'skipped',ai_skipped=True)
         self.assertEqual(status['state'],'skipped')
         self.assertIn('按要求跳过',status['description'])
 
-    def test_workflow_requires_close_window_for_screen_and_failure_flag(self):
+    def test_workflow_requires_close_window_for_screen_and_preserves_outage_failure(self):
         text=(Path(__file__).resolve().parents[1]/'.github/workflows/daily.yml').read_text()
-        self.assertEqual(text.count("steps.trading_day.outputs.market_ready == 'true'"),2)
+        self.assertEqual(text.count("steps.trading_day.outputs.market_ready == 'true'"),1)
         self.assertIn('MARKET_READY: ${{ steps.trading_day.outputs.market_ready }}',text)
+        self.assertIn('if status.get("market_state") == "failed":',text)
+        self.assertIn('raise SystemExit(1)',text)
 
 if __name__=='__main__': unittest.main()

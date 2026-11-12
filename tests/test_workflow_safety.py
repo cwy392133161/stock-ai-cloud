@@ -18,9 +18,10 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(daily.count("!inputs.skip_ai && vars.AI_ENABLED"), 2)
         self.assertIn('os.getenv("SKIP_AI") == "true"', daily)
 
-    def test_probe_hk_does_not_repeat_failed_normal_hosts(self):
+    def test_probe_uses_shared_budget_production_path(self):
         source = (ROOT / ".github/workflows/source-validation.yml").read_text()
-        self.assertIn('fetch_em_market("港股", ["delay"], EM_FS_HK, "HK")', source)
+        self.assertIn('python -u production_probe.py', source)
+        self.assertNotIn('fetch_em_market(', source)
 
 
 if __name__ == "__main__":
