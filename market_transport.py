@@ -1,4 +1,6 @@
 """One upstream, one request budget. Do not rotate hosts after push2 throttling."""
+import time
+import requests
 
 class ProviderCooldown(RuntimeError):
     """Stop all Eastmoney variants for this invocation; retry on a later run."""
@@ -20,8 +22,10 @@ class EastmoneyBudget:
         self.requests += 1
         try:
             response = self.get(url, **kwargs)
-            if getattr(response, "status_code", None) == 429:
-                raise ProviderCooldown("东财 HTTP 429 限流；停止所有同源重试，等待后续运行")
+            status = getattr(response, "status_code", None)
+            if status in (401, 403, 429):
+                reason = "限流" if status == 429 else "拒绝访问"
+                raise ProviderCooldown(f"东财 HTTP {status} {reason}；停止所有同源重试")
             response.raise_for_status()
             return response
         except Exception as exc:
@@ -41,3 +45,20 @@ class EastmoneyBudget:
                     + str(exc)[:200]
                 ) from exc
             raise
+
+    def request_page(self, url, pause=time.sleep, **kwargs):
+        """Retry one transient page once; both physical calls consume this budget.
+
+        Never retry HTTP429, disconnects, recognized push2 throttling, unknown
+        errors or an exhausted shared budget. Partial pagination still fails.
+        """
+        for attempt in range(2):
+            try:
+                return self(url, **kwargs)
+            except (requests.Timeout, requests.HTTPError) as exc:
+                response = getattr(exc, "response", None)
+                retryable = isinstance(exc, requests.Timeout) or (
+                    response is not None and response.status_code in (502, 503, 504))
+                if attempt or not retryable:
+                    raise
+                pause(2)

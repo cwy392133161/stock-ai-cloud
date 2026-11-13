@@ -132,15 +132,12 @@ class DataQualityTests(unittest.TestCase):
         bad["流通市值"] = float("nan")
         self.assertEqual(len(picker.score_a(bad)), 0)
 
-    def test_fetch_market_skips_bad_direct_and_accepts_complete_source(self):
-        good = quotes()
-        bad = good.drop(columns=["流通市值"])
-        with patch.object(picker, "ak", object()), patch.object(
-            picker, "fetch_em_market", side_effect=[bad, good]
-        ), patch.object(picker.time, "sleep", return_value=None):
-            result = picker.fetch_market("港股", [], "", "HK", None, lambda: bad)
-            self.assertEqual(result.attrs["quality"]["行情来源"], "东财港股原始字段（AKShare传输）")
-            self.assertEqual(len(result), 3500)
+    def test_hk_bad_fields_fail_without_same_source_restart(self):
+        bad = quotes(1500).drop(columns=["流通市值"])
+        with patch.object(picker, "fetch_em_market", return_value=bad) as fetch:
+            with self.assertRaisesRegex(RuntimeError, "覆盖不足"):
+                picker.fetch_market("港股", [], "", "HK", None, lambda: bad)
+        self.assertEqual(fetch.call_count, 1)
 
     def test_bad_source_never_publishes_fake_scores(self):
         bad = quotes().drop(columns=["流通市值"])

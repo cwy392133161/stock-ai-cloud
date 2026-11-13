@@ -15,7 +15,7 @@ class PickerRenderTests(unittest.TestCase):
         a.attrs['quality']=validate_market_data(a,'A股','腾讯测试源')
         hk.attrs['quality']=validate_market_data(hk,'港股','东财原始字段/delay')
         hk.attrs['quality']['行情时效']='港股官方延迟源，最多30交易分钟延迟'
-        with TemporaryDirectory() as directory, patch.object(picker,'__file__',str(Path(directory)/'picker.py')), patch.object(picker,'fetch_market',side_effect=[a,hk]):
+        with TemporaryDirectory() as directory, patch.object(picker,'__file__',str(Path(directory)/'picker.py')), patch.object(picker,'fetch_market',side_effect=[hk,a]):
             self.assertEqual(picker.main(),0)
             data=json.loads((Path(directory)/'docs/data.json').read_text())
             html=(Path(directory)/'docs/index.html').read_text()

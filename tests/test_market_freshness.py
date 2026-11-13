@@ -65,7 +65,8 @@ class HKFreshnessTests(unittest.TestCase):
     def test_delay_prefers_bounded_fresh_connection_page_transport(self):
         with patch.object(picker,'ak',object()), patch.object(picker,'fetch_em_clist',return_value=quotes(1500)) as fetch:
             picker.fetch_em_market('港股',['delay'],'','HK')
-        self.assertIs(fetch.call_args.kwargs['get'],picker._ak_em_get)
+        self.assertIsInstance(fetch.call_args.kwargs['get'], picker.EastmoneyBudget)
+        self.assertIs(fetch.call_args.kwargs['get'].get, picker._ak_em_single_get)
 
     def test_old_same_day_illiquid_quotes_do_not_disqualify_fresh_candidates(self):
         df=frame()
