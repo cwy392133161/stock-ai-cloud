@@ -1,5 +1,5 @@
 # 每天工作日北京时间 17:10 自动选股，并把结果发布到 GitHub Pages
-# 北京时间 17:10 = UTC 09:10；GitHub 定时任务可能延迟几分钟到几十分钟
+# 北京时间 17:10 = UTC 09:10；GitHub 定时任务可能延迟数小时或漏触发
 name: Daily stock screening and Pages
 
 on:
@@ -66,6 +66,8 @@ jobs:
       - name: 判断北京时间是否为交易工作日
         id: trading_day
         if: ${{ !inputs.report_only }}
+        env:
+          SCHEDULE_EVENT_NAME: ${{ github.event_name }}
         run: python market_schedule.py
 
       - name: 运行选股
@@ -102,6 +104,9 @@ jobs:
           SCREENING_OUTCOME: ${{ steps.screening.outcome }}
           TRADING_WEEKDAY: ${{ steps.trading_day.outputs.trading_weekday }}
           MARKET_READY: ${{ steps.trading_day.outputs.market_ready }}
+          SCHEDULE_EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_STATE: ${{ steps.trading_day.outputs.schedule_state }}
+          SCHEDULE_OBSERVED_AT: ${{ steps.trading_day.outputs.schedule_observed_at }}
           REPORT_ONLY: ${{ inputs.report_only }}
         run: python publish_guard.py
 
@@ -114,13 +119,17 @@ jobs:
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
 
-      - name: 标记尚未恢复的行情故障
+      - name: 标记未完成的定时更新或行情故障
         if: ${{ !inputs.report_only }}
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
+          from market_schedule import SCHEDULE_BLOCK_REASONS
           status = json.loads(Path("docs/ai-status.json").read_text(encoding="utf-8"))
+          if status.get("schedule_state") in SCHEDULE_BLOCK_REASONS:
+              print("::error::" + SCHEDULE_BLOCK_REASONS[status["schedule_state"]])
+              raise SystemExit(1)
           if status.get("market_state") == "failed":
               print("::error::最近一次行情更新失败后尚无更新的成功快照。跳过选股不能证明恢复；请勿将旧行情当作本期结果。")
               raise SystemExit(1)

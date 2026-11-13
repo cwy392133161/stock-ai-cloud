@@ -10,6 +10,7 @@ import re
 import sys
 from html import escape
 from datetime import datetime, timezone
+from market_schedule import SCHEDULE_BLOCK_REASONS
 
 ROOT = pathlib.Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
@@ -67,7 +68,9 @@ def market_freshness(current, market_state, screening_outcome, previous):
         description = "本次选股步骤成功；行情时点以实际快照为准，不代表实时行情"
     else:
         description = "本次未重新检查行情源；保留旧快照，不能据此判断行情源已恢复"
-    if market_state == "pre_close":
+    if market_state in SCHEDULE_BLOCK_REASONS:
+        description += "。" + SCHEDULE_BLOCK_REASONS[market_state]
+    elif market_state == "pre_close":
         description += "。本次因未到北京时间17:00发布窗口跳过选股"
     elif market_state == "weekend":
         description += "。本次因北京时间周末跳过选股"
@@ -126,6 +129,8 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
         state, description = ("review-required", "既有报告发现归因与主体范围问题，需重新审核；"
                               "尚未完成复审，原通过标记不可作为当前核验结论。"
                               "原计数仅为历史生成记录，未经此次复审确认")
+    elif market_state in SCHEDULE_BLOCK_REASONS:
+        state, description = "market-schedule-blocked", SCHEDULE_BLOCK_REASONS[market_state]
     elif market_state == "weekend":
         state, description = ("market-weekend", "周末非交易日：保留最近一次有效行情快照，"
                               "未重新选股，也未自动触发AI研究")
@@ -243,11 +248,19 @@ def main():
     screening = os.getenv("SCREENING_OUTCOME", "").strip()
     weekday = os.getenv("TRADING_WEEKDAY", "").strip()
     ready = os.getenv("MARKET_READY", "").strip()
+    # Step-scoped input: offline tests run inside scheduled Actions too and
+    # must not inherit the runner's ambient GITHUB_EVENT_NAME as an instruction.
+    scheduled = os.getenv("SCHEDULE_EVENT_NAME", "") == "schedule"
+    schedule_state = os.getenv("SCHEDULE_STATE", "") if scheduled else "not_scheduled"
+    if scheduled and schedule_state not in {"schedule_ready", *SCHEDULE_BLOCK_REASONS}:
+        schedule_state = "schedule_invalid_context"
     # report_only deliberately uses the last published quote snapshot.
     # On a weekend or real market outage no new financial report is generated.
     market_state = None
     if not report_only and screening == "failure":
         market_state = "failed"
+    elif not report_only and schedule_state in SCHEDULE_BLOCK_REASONS:
+        market_state = schedule_state
     elif not report_only and weekday == "false":
         market_state = "weekend"
     elif not report_only and weekday == "true" and ready == "false":
@@ -264,6 +277,12 @@ def main():
                                previous_status=previous,
                                screening_outcome=screening if not report_only else None)}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    state["schedule_state"] = schedule_state
+    if scheduled:
+        state["last_schedule_state"] = schedule_state
+        state["last_schedule_observed_at"] = os.getenv("SCHEDULE_OBSERVED_AT", "") or now
+        state["last_schedule_run_id"] = os.getenv("GITHUB_RUN_ID", "")
+        state["last_schedule_run_attempt"] = os.getenv("GITHUB_RUN_ATTEMPT", "")
     if not report_only and screening in ("success", "failure"):
         state["last_screening_recorded_utc"] = now
     rewritten = update_index(home_path.read_text(encoding="utf-8"), state,
@@ -279,6 +298,8 @@ def main():
           "AI:", state["report_snapshot"], flush=True)
     if state["market_state"] == "failed":
         print("::warning::行情更新仍未恢复：" + state["market_description"], flush=True)
+    if schedule_state in SCHEDULE_BLOCK_REASONS:
+        print("::warning::" + SCHEDULE_BLOCK_REASONS[schedule_state], flush=True)
     if enabled and state["state"] != "current":
         print("::warning::AI研究尚未全部通过发布门槛：" + state["description"], flush=True)
     return 0
