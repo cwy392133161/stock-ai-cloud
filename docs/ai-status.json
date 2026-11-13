@@ -8,7 +8,7 @@
   "research_approved": 1,
   "research_limited": 7,
   "research_total": 10,
-  "recorded_utc": "2026-11-12T17:34:04+00:00",
+  "recorded_utc": "2026-11-13T17:10:29+00:00",
   "review_required": true,
   "review_frozen_generation": null,
   "research_generation_id": null,
@@ -17,8 +17,13 @@
   "last_screening_outcome": "failure",
   "last_screening_recorded_utc": "2026-11-11T14:25:57+00:00",
   "market_failure_restored_from": "https://github.com/cwy392133161/stock-ai-cloud/commit/c0305c7031b7165473a96f3bd137f5aa90b7ca4d",
-  "market_check_state": "pre_close",
+  "market_check_state": "schedule_missed_window",
   "market_failure_snapshot": "2026-11-10 17:58",
-  "market_description": "最近一次行情更新失败后尚无更新的成功快照；仍显示旧行情，不能视作本期结果或行情源已恢复。本次因未到北京时间17:00发布窗口跳过选股",
-  "screening_outcome": "skipped"
+  "market_description": "最近一次行情更新失败后尚无更新的成功快照；仍显示旧行情，不能视作本期结果或行情源已恢复。定时任务实际启动时已不在北京时间工作日17:00至24:00发布窗口；本次未采集行情、未生成AI。不能把次日凌晨当成原交易日补跑，也不能把旧快照改成新日期",
+  "screening_outcome": "skipped",
+  "schedule_state": "schedule_missed_window",
+  "last_schedule_state": "schedule_missed_window",
+  "last_schedule_observed_at": "2026-11-14T01:10:29+08:00",
+  "last_schedule_run_id": "43470085635",
+  "last_schedule_run_attempt": "1"
 }
