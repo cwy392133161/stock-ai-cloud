@@ -552,7 +552,8 @@
         "source_line": 403
       }
     ],
-    "download": "hkex-quotes.zip"
+    "download": "hkex-quotes.zip",
+    "ranking_status": "skipped"
   },
   "filing_examples": [
     {
@@ -569,5 +570,42 @@
       "date": "2026-08-21",
       "source": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0821/2026082100311_c.pdf"
     }
-  ]
+  ],
+  "research": {
+    "market": "A股",
+    "snapshot": "2026-11-13 16:15",
+    "generation_id": "21b60f83954741f19c3b425af16235d8",
+    "report": "ai.html",
+    "approved": 0,
+    "conditional": 5,
+    "facts_only": 0,
+    "articles": [
+      {
+        "code": "601169",
+        "name": "北京银行",
+        "href": "ai.html#stock-601169"
+      },
+      {
+        "code": "002948",
+        "name": "青岛银行",
+        "href": "ai.html#stock-002948"
+      },
+      {
+        "code": "000001",
+        "name": "平安银行",
+        "href": "ai.html#stock-000001"
+      },
+      {
+        "code": "600919",
+        "name": "江苏银行",
+        "href": "ai.html#stock-600919"
+      },
+      {
+        "code": "601665",
+        "name": "齐鲁银行",
+        "href": "ai.html#stock-601665"
+      }
+    ],
+    "sources": "a-research-sources.json.gz"
+  }
 }
