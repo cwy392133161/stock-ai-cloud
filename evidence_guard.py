@@ -144,7 +144,19 @@ EXTERNAL_INSTRUCTION = re.compile(
 # A literal sentence without an entity subject can describe a segment rather
 # than the issuer (e.g. a CRDMO paragraph in a diversified group's report).
 # Do not promote it from a located quote to issuer-level claim evidence.
-ISSUER_SUBJECT = re.compile(r"^(?:本集[团團]|本公司|公司|集[团團]|Thegroup|Thecompany)" , re.I)
+# Only a closed set of temporal prefixes may precede the explicit subject.
+# Do not search for a subject later in a sentence: that would admit conditions,
+# attribution to third parties, and subsidiary context as issuer assertions.
+ISSUER_TIME_PREFIX = (
+    r"(?:(?:[报報]告期(?:内|內|末)|"
+    r"(?:19|20)[0-9]{2}年(?:[1-9]|1[0-2])月(?:末)?|"
+    r"(?:19|20)[0-9]{2}年前[三四]季度)[,，])?"
+)
+ISSUER_SUBJECT = re.compile(
+    r"^" + ISSUER_TIME_PREFIX
+    + r"(?:本集[团團]|本公司|公司|集[团團]|本行(?!的|客[户戶]|分行|支行|[员員]工|[关關][联聯]方|股[东東]|董事|管理[层層])|Thegroup|Thecompany)",
+    re.I,
+)
 SEGMENT_SCOPE = re.compile(r"分部|分[类類]業務|子公司|附[属屬]公司|[业業][务務]|控股企[业業]|控股公司|旗下|事业部|事業部|segment|subsidiar", re.I)
 
 

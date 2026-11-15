@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from peer_valuation import valuation_context
 from research_quality import evidence_quality
 from period_reports import matched_report_notices
-from research_differentiation import focal_question
+from research_differentiation import focal_question, bank_research_context
 from cash_profit_observations import cash_profit_observation
 
 PERCENT = re.compile(
@@ -54,6 +54,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     catalysts or causal explanations are created by this function.
     """
     evidence = disclosure or {}
+    bank_context = bank_research_context(stock, finance, evidence)
     metrics = finance.get("指标") or {}
     status = finance.get("状态", "未核实")
     period = finance.get("报告期")
@@ -140,7 +141,11 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if not historical:
         historical.append("缺少两个可比较年度的同报告季数据，不能推断三年趋势")
 
-    cash_observation = cash_profit_observation(finance, as_of or stock.get("行情快照日期"))
+    cash_observation = None if bank_context else cash_profit_observation(finance, as_of or stock.get("行情快照日期"))
+    if bank_context:
+        coverage.append("银行研究口径依据：" + bank_context)
+        counterarguments.insert(0, "银行经营现金流包含存贷款及同业资金变动，不能凭其与营收大小或利润方向判断现金流异常、盈利质量或回款质量")
+        checkpoints.insert(0, "核验同口径净息差、不良贷款率、拨备覆盖率、资本充足率及存贷款变动；缺失不作推断")
     if cash_observation:
         counterarguments.insert(0, cash_observation["观察"])
         # Replace the generic profitability follow-up, retaining source repair.
@@ -230,6 +235,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         "多期财务对照": historical,
         "估值与同业横截面": relative,
         "研究证据质量": quality,
+        "银行研究口径": bank_context,
         "聚焦问题": focus,
         "同业财务分析": peer_finance,
         "条件情景（非价格预测）": scenarios,

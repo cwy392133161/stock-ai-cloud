@@ -38,7 +38,7 @@ def _amount(finance, label, bases):
     return None
 
 
-def financial_comparison(finance) -> str:
+def financial_comparison(finance, bank_context=False) -> str:
     """Summarize usable amounts only. Use signed net cash in the revenue comparison."""
     if finance.get("状态") == "公司财务分析不适用":
         return "该产品不适用公司财务比较。"
@@ -71,7 +71,9 @@ def financial_comparison(finance) -> str:
     # Preserve the provider's precise revenue label (A-share total / HK revenue).
     revenue_label = "营业总收入" if "营业总收入" in (finance.get("指标") or {}) else "营业收入"
     revenue = _amount(finance, revenue_label, bases)
-    if cash is not None and revenue is not None:
+    if bank_context:
+        comparison = "银行经营现金流包含存贷款及同业资金变动，不以其与营收大小或利润方向判断盈利质量；应核验资产质量、拨备及资本指标。"
+    elif cash is not None and revenue is not None:
         relation = "等于" if cash == revenue else ("高于" if cash > revenue else "低于")
         comparison = f"按有符号金额比较，经营现金流净额{relation}同期{revenue_label} {revenue:,f} {currency}。"
     else:

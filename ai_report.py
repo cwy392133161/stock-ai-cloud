@@ -312,7 +312,7 @@ def relevant_financial_claim(claim):
     return bool(RESEARCH_CLAIM_TOPIC.search(text) and observation)
 
 
-def review_research_hypotheses(text):
+def review_research_hypotheses(text, bank_context=False):
     """Keep conditional, falsifiable interpretation; reject unsupported facts.
 
     Company-specific disclosed events and quantities must go through the
@@ -336,6 +336,11 @@ def review_research_hypotheses(text):
                 EVENT_ASSERTION.search(cleaned) or
                 DISCLOSURE_ATTRIBUTION.search(cleaned)
             )
+            # An unsupported banking method stays invalid even when hedged.
+            # Conservative exclusion, not a semantic endorsement of other prose.
+            if bank_context and re.search(r"现金|回款", cleaned) and re.search(
+                    r"收入|营收|盈利|利润|质量|异常|背离", cleaned):
+                blocked = True
             # A hedge AFTER an unsupported factual assertion does not
             # retroactively convert it into a hypothesis. For instance,
             # "公司订单持续增长，但仍需关注风险" states an unverified
@@ -383,7 +388,7 @@ def assess_model_research(content, brief, notices):
         result["原因"].append("AI未输出符合约定的四章节JSON")
         return result
 
-    sanitized = {key: review_research_hypotheses(parsed["sections"][key])
+    sanitized = {key: review_research_hypotheses(parsed["sections"][key], bool(brief.get("银行研究口径")))
                  for key in SECTIONS}
     sections = {key: pair[0] for key, pair in sanitized.items()}
     removed_sentences = sum(pair[1] for pair in sanitized.values())
@@ -627,7 +632,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
             parts.append('</details>')
         parts.append(finance_html(finance))
         parts.append(render_research_brief(brief))
-        comparison = financial_comparison(finance)
+        comparison = financial_comparison(finance, bool(brief.get("银行研究口径")))
         if comparison:
             parts.append('<p><b>同口径财务核对</b><br>' + esc(comparison) + '</p>')
         parts.append('</article>')
@@ -674,6 +679,7 @@ def compact_research_inputs(market, stock, finance, brief, evidence, comparison,
             "程序数值核查": comparison,
         },
         "研究焦点": brief.get("聚焦问题") or {},
+        "银行研究口径": brief.get("银行研究口径") or "未确认银行口径，不从负债率或名称单独推断行业",
         "反方证据与核验问题": {
             "反面证据": brief.get("反面证据") or [],
             "验证条件": brief.get("后续验证点") or [],
@@ -928,7 +934,7 @@ def generate_report(data, output_path, *, markets=("A股",), cache_dir=None,
         print(f"同行财务 {market} {code}：{peer_context['状态']}，"
               f"本轮累计额外财务请求 {budget['calls']} 次（不设项目内调用配额）", flush=True)
         brief = build_research_brief(s, finance, evidence, data.get('updated'), peer_context)
-        comparison = financial_comparison(finance)
+        comparison = financial_comparison(finance, bool(brief.get("银行研究口径")))
         inputs = compact_research_inputs(
             market, s, finance, brief, evidence, comparison, data["updated"])
         prompt = (
@@ -937,6 +943,7 @@ def generate_report(data, output_path, *, markets=("A股",), cache_dir=None,
             "**不要将任何预测或未被直接摘录支持的公司事件当作事实陈述**。"
             "精准的财务金额、同比变化和估值倍数由程序单独展示，不必在正文重复。"
             "正文可以讨论营收与利润是否背离、现金流质量是否值得追问、"
+            "但银行不适用一般企业经营现金流/营收/利润比较的质量推断；银行应核验净息差、资产质量、拨备及资本指标，缺失就明确缺失。"
             "为什么行业估值比较不一定可靠，以及哪份后续报告可以否定当前逻辑。"
             "每家公司必须围绕'研究焦点'中的特定矛盾展开，不能复制通用模板。"
             "即使PDF没有可匹配的经营原因摘录，也可以输出基于财务事实的条件性研究；"
