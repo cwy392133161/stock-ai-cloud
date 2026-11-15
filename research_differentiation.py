@@ -7,8 +7,52 @@ focus; duplicate model prose is downgraded rather than silently published.
 from collections import Counter
 import re
 import unicodedata
+from period_reports import disclosure_market, period_title_score
+from filing_text import trusted
 
 HEADINGS = ("入选逻辑", "经营和估值", "反面证据", "跟踪条件")
+
+
+def bank_research_context(stock, finance, evidence=None):
+    """Choose a research framework, not a verified regulatory classification.
+
+    Never infer banking from leverage, stock code or an isolated name alone.
+    A missing industry needs both an issuer bank name and a same-period official
+    report naming it in the title or explicitly using the bank's own subject.
+    """
+    industry = str(stock.get("行业") or "").strip()
+    if re.fullmatch(r"银行|銀行|银行业|銀行業|Bank(?:s|ing)?", industry, re.I):
+        return "行情行业字段标为银行（仅用于选择研究口径）"
+    if industry.lower() not in ("", "未知", "未知行业", "未分类", "未核实", "—", "-", "nan", "none", "null", "n/a", "unknown"):
+        return ""
+    name = str(stock.get("名称") or "").strip()
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,20}[银銀]行", name):
+        return ""
+    market = disclosure_market(evidence or {})
+    period = finance.get("报告期")
+    if not market or not period:
+        return ""
+    for notice in (evidence or {}).get("公告", []):
+        # The index may tag only its first matching report (e.g. the H-share
+        # version before an A-share version). Recheck each full-report title,
+        # without altering disclosure metadata or promoting evidence grades.
+        if notice.get("报告期匹配") not in (None, period):
+            continue
+        try:
+            score = period_title_score(notice.get("标题", ""), period, market)
+        except (TypeError, ValueError):
+            continue
+        if score < 100:
+            continue
+        if not trusted(str(notice.get("链接", ""))):
+            continue
+        if name in str(notice.get("标题", "")):
+            return "银行名称与对应期官方报告标题一致（非监管行业认证）"
+        for page in notice.get("正文摘录", []):
+            if re.search(r"本行(?:实现|實現|不良|逾期|资产|資產|存款|贷款|貸款|不存在|已)",
+                         re.sub(r"\s+", "", page.get("摘录", ""))):
+                return "银行名称与对应期官方报告的本行表述一致（非监管行业认证）"
+    return ""
 
 
 def _pct(finance, *names):
@@ -64,6 +108,12 @@ def focal_question(stock, finance, evidence=None, peer=None):
     if industry.lower() in ("未知", "未知行业", "未分类", "未核实", "—", "-", "nan", "none", "null", "n/a", "unknown"):
         industry = ""
     financial_industry = bool(re.search(r"银行|銀行|保险|保險|证券|證券|金融|bank|insurance|financial|securities|brokerage", industry, re.I))
+    bank_context = bank_research_context(stock, finance, evidence)
+    financial_industry = financial_industry or bool(bank_context)
+    if bank_context:
+        label = "银行盈利、资产质量与资本约束"
+        why = "核对收入与利润变化、净息差、不良贷款及拨备口径；不以经营现金流与营收大小评价盈利质量"
+        follow = "取得同口径净息差、不良贷款率、拨备覆盖率及资本充足率；未取得前不推断改善或恶化"
     if debt is not None and debt > 80 and industry and not financial_industry and label in ("增长质量与可持续性", "资料边界核查"):
         label, why = "高负债与增长质量", "资产负债率较高，应重点核验现金流与偿债安排，不直接推断违约风险"
         follow = "下一期披露中核验债务结构及经营现金流"
