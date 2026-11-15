@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from disclosures import HK, STATIC, fetch_disclosures
 from bank_evidence import is_bank, with_bank_classification
+from bank_ratio_guard import BANK_RATIO_RULES, BANK_RATIO_SOURCE, blocks_bank_ratio_inference
 from filing_text import enrich_frozen_bank_filings, read_filings, trusted
 from financial_timing import provider_date
 from finance import fetch_financial
@@ -342,6 +343,8 @@ def review_research_hypotheses(text, bank_context=False):
             if bank_context and re.search(r"现金|回款", cleaned) and re.search(
                     r"收入|营收|盈利|利润|质量|异常|背离", cleaned):
                 blocked = True
+            if bank_context and blocks_bank_ratio_inference(cleaned):
+                blocked = True
             # A hedge AFTER an unsupported factual assertion does not
             # retroactively convert it into a hypothesis. For instance,
             # "公司订单持续增长，但仍需关注风险" states an unverified
@@ -530,7 +533,10 @@ def render_research_brief(brief):
 def render_bank_evidence(bank):
     if bank is None:
         return ""
-    parts = ['<section class="bank-evidence"><h3>银行经营指标核对</h3>']
+    parts = ['<section class="bank-evidence"><h3>银行经营指标核对</h3>',
+             '<p class="bank-ratio-method"><strong>比率口径（非公司成因判断）：</strong>'
+             + esc(BANK_RATIO_RULES) + ' <a href="' + esc(BANK_RATIO_SOURCE)
+             + '">财政部比率定义</a></p>']
     for row in bank["指标"]:
         url = row["链接"] + "#page=" + str(row["页"])
         parts.append('<p><b>' + esc(row["指标"]) + ' ' + esc(row["数值"]) + '%</b>　'
@@ -707,6 +713,7 @@ def compact_research_inputs(market, stock, finance, brief, evidence, comparison,
         "研究焦点": brief.get("聚焦问题") or {},
         "银行研究口径": brief.get("银行研究口径") or "未确认银行口径，不从负债率或名称单独推断行业",
         **({"银行指标核对": brief["银行指标核对"]} if "银行指标核对" in brief else {}),
+        **({"银行比率公式与边界": BANK_RATIO_RULES} if brief.get("银行研究口径") else {}),
         "反方证据与核验问题": {
             "反面证据": brief.get("反面证据") or [],
             "验证条件": brief.get("后续验证点") or [],
@@ -986,6 +993,7 @@ def generate_report(data, output_path, *, markets=("A股",), cache_dir=None,
             "依据本行的银行指标核对及其研究焦点，解释哪些证据能验证或推翻这个特定问题。"
             "区分时点值和累计净息差，保留本行、集团及未明示的口径。不能从百分点变动直接断言成因。"
             "不得用工商企业的经营现金流检验方法判断银行盈利质量。"
+            + BANK_RATIO_RULES + "正文仅提出中性的余额核验问题，不自行解释覆盖率变动的成因。"
             if bank is not None else "")
         prompt = (
             "你是一名审慎的股票基本面研究员，必须只输出一个合法JSON对象。"
