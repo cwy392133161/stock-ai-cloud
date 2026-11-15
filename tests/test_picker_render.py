@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 import picker
+import publish_guard
 from market_quality import validate_market_data
 from test_market_quality import quotes
 
@@ -26,6 +27,12 @@ class PickerRenderTests(unittest.TestCase):
             self.assertIn('行情时效',data['quality']['港股'])
             self.assertNotIn('href="./ai.html"', html)
             self.assertIn('<p class="ai-nav">', html)
+            self.assertEqual(html.count('href="./history/"'), 1)
+            status = publish_guard.research_freshness(data, "", False, "skipped")
+            for has_report in (False, True):
+                with self.subTest(has_report=has_report):
+                    guarded = publish_guard.update_index(html, status, has_report)
+                    self.assertEqual(guarded.count('href="./history/"'), 1)
 
     def test_provider_text_is_escaped_in_ranking(self):
         row = {"名称": "<img src=x onerror=alert(1)>", "代码": "A&B", "最新价": 4.0,

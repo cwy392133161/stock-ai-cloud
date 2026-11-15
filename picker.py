@@ -436,6 +436,7 @@ th{background:#fafafa;font-size:13px;color:#555}
 <body><div class="wrap">
 <h1>📈 A 股 + 港股 AI 选股榜</h1>
 {ai_nav}
+<p class="sub"><a href="./history/">按日期查看历史收盘行情和公告</a></p>
 <p class="sub">更新时间：<b>{updated}</b>（北京时间）<br>
 规则化多因子评分：趋势 40% / 活跃度 25% / 估值 20% / 规模 15%。各市场本次采用的行情来源见下方质量核验。</p>
 """
