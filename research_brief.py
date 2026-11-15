@@ -8,8 +8,9 @@ from decimal import Decimal, InvalidOperation
 from peer_valuation import valuation_context
 from research_quality import evidence_quality
 from period_reports import matched_report_notices
-from research_differentiation import focal_question, bank_research_context
+from research_differentiation import bank_research_context, focal_question
 from cash_profit_observations import cash_profit_observation
+from bank_evidence import bank_metrics, bank_focus
 
 PERCENT = re.compile(
     r"^([+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)"
@@ -54,7 +55,6 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     catalysts or causal explanations are created by this function.
     """
     evidence = disclosure or {}
-    bank_context = bank_research_context(stock, finance, evidence)
     metrics = finance.get("指标") or {}
     status = finance.get("状态", "未核实")
     period = finance.get("报告期")
@@ -141,7 +141,17 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if not historical:
         historical.append("缺少两个可比较年度的同报告季数据，不能推断三年趋势")
 
-    cash_observation = None if bank_context else cash_profit_observation(finance, as_of or stock.get("行情快照日期"))
+    cutoff = as_of or stock.get("行情快照日期")
+    bank = bank_metrics(stock, finance, evidence, cutoff)
+    bank_context = bank_research_context(stock, finance, evidence)
+    if bank is not None:
+        if stock.get("行业") == "货币金融服务":
+            bank_context = stock.get("银行分类依据") or "货币金融服务行业字段与发行人银行名称一致"
+        elif not bank_context and bank["指标"]:
+            bank_context = "发行人银行名称及同报告期官方财报的银行专属指标已逐页核对"
+    if not bank_context:
+        bank = None
+    cash_observation = None if bank_context else cash_profit_observation(finance, cutoff)
     if bank_context:
         coverage.append("银行研究口径依据：" + bank_context)
         counterarguments.insert(0, "银行经营现金流包含存贷款及同业资金变动，不能凭其与营收大小或利润方向判断现金流异常、盈利质量或回款质量")
@@ -192,7 +202,9 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if quality["缺口"]:
         coverage.append("待补证：" + "；".join(quality["缺口"]))
 
-    focus = focal_question(stock, finance, evidence, peer_finance)
+    focus = bank_focus(stock, bank) if bank and bank["指标"] else focal_question(stock, finance, evidence, peer_finance)
+    if bank and bank["指标"]:
+        checkpoints.insert(0, focus["下一期关键问题"])
     # Distinguish hypotheses from forecasts: choose evidence-specific
     # scenarios instead of copying the same three generic paragraphs.
     if revenue_yoy is None:
@@ -216,7 +228,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         profit_check = "归母净利润同比变化能否延续，且绝对额盈亏口径一致"
 
     if valuation.get("行业参考"):
-        valuation_check = "重新核验同供应商同标签PE/PB样本，排除盈利质量变化的影响"
+        valuation_check = "按当期行业分类重新核验同行 PE/PB 样本，并检查盈利质量变化"
     else:
         valuation_check = "行业估值样本仍不充分时不作同行高低判断"
 
@@ -227,6 +239,8 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     ]
 
     return {
+        "银行研究口径": bank_context,
+        **({"银行指标核对": bank} if bank is not None else {}),
         "行情入选依据": "；".join(market_view),
         "财务变化线索": "；".join(change),
         "反面证据": counterarguments[:3],
@@ -235,7 +249,6 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         "多期财务对照": historical,
         "估值与同业横截面": relative,
         "研究证据质量": quality,
-        "银行研究口径": bank_context,
         "聚焦问题": focus,
         "同业财务分析": peer_finance,
         "条件情景（非价格预测）": scenarios,

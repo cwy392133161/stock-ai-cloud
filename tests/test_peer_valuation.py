@@ -49,6 +49,9 @@ class ValuationTests(unittest.TestCase):
         self.assertIsNone(outlier["PE动态"])
         self.assertIsNone(outlier["PB"])
         self.assertIsNone(outlier["行业参考"])
+        self.assertEqual(outlier["原始动态PE"], 160)
+        self.assertEqual(outlier["原始PB"], 18)
+        self.assertIn("已记录", outlier["状态"])
         ordinary = valuation_context({
             "行业": "制造业", "市盈率-动态": 18,
             "市净率": 1.4, "行业估值参考": benchmark,

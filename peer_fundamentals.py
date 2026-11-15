@@ -130,7 +130,7 @@ def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
     Never claim company-specific outperformance from a weak peer sample.
     """
     unavailable = {"状态": "同行财务口径或样本不足", "行业": stock.get("行业") or "未核实",
-                   "原因": "需要至少3家同供应商行业、相近规模、同报告期且披露时间合规的同行"}
+                   "原因": "需要至少3家行业分类口径一致、相近规模、同报告期且披露时间合规的同行"}
     if not as_of or not finance.get("报告期") or not candidates:
         return unavailable
     if str(finance.get("报告期")) > str(as_of)[:10]:
@@ -181,7 +181,7 @@ def analyze_peer_financials(stock, finance, candidates, as_of, cache, budget):
         "行业": stock.get("行业"),
         "报告期": target_period,
         "来源": "东方财富（AKShare 财务指标接口）",
-        "选样口径": "同供应商行业标签、流通市值相差不超过3倍、同报告期、已披露",
+        "选样口径": "当期同一行业分类、流通市值相差不超过3倍、同报告期、已披露",
         "同行有效公司": len(parsed),
         "同行代码": [code for _, code in parsed],
         "可比指标": values,

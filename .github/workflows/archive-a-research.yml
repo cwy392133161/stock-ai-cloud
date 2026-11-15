@@ -2,10 +2,11 @@ name: November 13 archived A-share research
 
 on:
   push:
-    branches: [ops/research-20261113-a]
+    branches: [ops/research-20261113-a, ops/a-factors-20261113]
     paths:
       - '.github/workflows/archive-a-research.yml'
       - '*.py'
+      - 'docs/history/2026-11-13/a-bank-evidence.json.gz'
   workflow_dispatch:
 
 permissions:
@@ -18,10 +19,11 @@ concurrency:
 env:
   ARCHIVE: docs/history/2026-11-13
   PYTHONUNBUFFERED: "1"
+  BANK_EDITION: ${{ github.ref_name == 'ops/a-factors-20261113' }}
 
 jobs:
   generate:
-    if: github.ref == 'refs/heads/ops/research-20261113-a'
+    if: github.ref_name == 'ops/research-20261113-a' || github.ref_name == 'ops/a-factors-20261113'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -35,7 +37,31 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_*.py"
           python -m unittest test_finance test_hk_original test_hk_products test_report
+      - uses: actions/cache/restore@v4
+        if: env.BANK_EDITION == 'true'
+        with:
+          path: ${{ runner.temp }}/research-cache
+          key: bank-20261113-43734443803-1
+      - uses: actions/checkout@v4
+        if: env.BANK_EDITION == 'true'
+        with:
+          ref: ab175a85c6f1d84c4b7ecfaabed25f46b18800d0
+          path: original-bank-run
+          persist-credentials: false
+      - name: Reassess the five verified paid replies offline
+        if: env.BANK_EDITION == 'true'
+        env:
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+        run: |
+          if [ -f "$ARCHIVE/ai-bank-reviewed.html" ]; then
+            cp "$ARCHIVE/ai-bank-reviewed.html" "$RUNNER_TEMP/ai.html"
+          else
+            python replay_bank_review.py recover --old "$GITHUB_WORKSPACE/original-bank-run" --cache "$RUNNER_TEMP/research-cache" --packet "$RUNNER_TEMP/bank-replay.json"
+            python replay_bank_review.py review --archive "$ARCHIVE" --packet "$RUNNER_TEMP/bank-replay.json" --output "$RUNNER_TEMP/ai.html"
+          fi
       - name: Generate research for the five archived A-share selections
+        if: env.BANK_EDITION != 'true'
         env:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_MODEL: ${{ vars.AI_MODEL }}
@@ -65,7 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ops/research-20261113-a
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -76,11 +102,16 @@ jobs:
           path: ${{ runner.temp }}/reviewed-report
       - name: Verify stock links and update the dated archive
         run: |
-          python archive_research.py "$ARCHIVE" "$RUNNER_TEMP/reviewed-report/ai.html"
+          if [ "$BANK_EDITION" = true ]; then
+            python bank_research_edition.py publish "$ARCHIVE" "$RUNNER_TEMP/reviewed-report/ai.html" --reviewed
+            git add "$ARCHIVE/ai-bank-reviewed.html" docs/ai.html docs/index.html docs/ai-status.json
+          else
+            python archive_research.py "$ARCHIVE" "$RUNNER_TEMP/reviewed-report/ai.html"
+          fi
           git config user.name stock-bot
           git config user.email stock-bot@users.noreply.github.com
           git add "$ARCHIVE/ai.html" "$ARCHIVE/index.html" "$ARCHIVE/summary.json" docs/history/index.html
           if ! git diff --cached --quiet; then
             git commit -m "Publish November 13 A-share research for the five archived selections"
-            git push origin HEAD:refs/heads/ops/research-20261113-a
+            git push origin "HEAD:$GITHUB_REF"
           fi

@@ -607,5 +607,51 @@
       }
     ],
     "sources": "a-research-sources.json.gz"
+  },
+  "bank_research": {
+    "market": "A股",
+    "snapshot": "2026-11-13 16:15",
+    "generation_id": "af124cd037a248f5b8d24293c7a8feea",
+    "report": "ai-bank.html",
+    "approved": 0,
+    "conditional": 5,
+    "facts_only": 0,
+    "articles": [
+      {
+        "code": "601169",
+        "name": "北京银行",
+        "href": "ai-bank.html#stock-601169"
+      },
+      {
+        "code": "002948",
+        "name": "青岛银行",
+        "href": "ai-bank.html#stock-002948"
+      },
+      {
+        "code": "000001",
+        "name": "平安银行",
+        "href": "ai-bank.html#stock-000001"
+      },
+      {
+        "code": "600919",
+        "name": "江苏银行",
+        "href": "ai-bank.html#stock-600919"
+      },
+      {
+        "code": "601665",
+        "name": "齐鲁银行",
+        "href": "ai-bank.html#stock-601665"
+      }
+    ],
+    "evidence": "a-bank-evidence.json.gz",
+    "metric_counts": {
+      "601169": 3,
+      "002948": 4,
+      "000001": 4,
+      "600919": 3,
+      "601665": 3
+    },
+    "evidence_sha256": "167743c6f1bde0a950d0d5707ff55abaeda044c7c2bf31958effea7a72bed9f2",
+    "run": "https://github.com/cwy392133161/stock-ai-cloud/actions/runs/43734443803"
   }
 }

@@ -46,7 +46,7 @@ def industry_benchmarks(frame, *, min_pe=12, min_pb=12, min_group=20, min_covera
             "行业PB中位数": med(pb) if len(pb) >= min_pb and len(pb) / len(rows) >= min_coverage else None,
             "PE样本覆盖率": round(len(pe) / len(rows), 3),
             "PB样本覆盖率": round(len(pb) / len(rows), 3),
-            "样本说明": "同一行情快照中通过流动性过滤的A股供应商行业标签组；剔除无效及极端倍数，只做横截面描述，未调整行业细分/盈利质量，不代表估值合理或便宜",
+            "样本说明": "同一收盘快照中通过流动性筛选的 A 股按行业分组。倍数中位数仅使用正 PE 不超过 100 倍、正 PB 不超过 10 倍的样本。",
         }
     return output
 
@@ -61,16 +61,23 @@ def valuation_context(stock):
     raw = stock.get("行业估值参考")
     reference = raw if isinstance(raw, dict) else {}
     obj = {
-        "来源": "榜单同一行情快照的东方财富行情数据（动态PE与PB）",
+        "来源": stock.get("行情来源") or "榜单同期行情快照",
         "行情时点": "与榜单快照相同；不是财报披露时点",
         "PE动态": pe,
         "PB": pb,
         "行业": industry or "未核实",
+        "行业分类来源": stock.get("行业分类来源"),
+        "行业分类发布日期": stock.get("行业分类发布日期"),
+        "原始动态PE": safe_number(stock.get("市盈率-动态")),
+        "原始PB": safe_number(stock.get("市净率")),
+        "PE状态": stock.get("PE状态"), "PB状态": stock.get("PB状态"),
         "行业参考": None,
         "解释": "低于行业中位数不等于低估；动态PE并非TTM或未来盈利预测",
     }
-    if pe is None and pb is None:
+    if obj["原始动态PE"] is None and obj["原始PB"] is None:
         obj["状态"] = "缺乏可核实的结构化估值倍数"
+    elif pe is None and pb is None:
+        obj["状态"] = "已记录原始行情倍数，超出行业中位数的比较范围"
     else:
         obj["状态"] = "行情倍数可用，仅作截面对照"
     count = reference.get("同行样本数")
@@ -91,7 +98,7 @@ def valuation_context(stock):
             "个股倍数": actual, "行业样本中位数": median,
             "有效同业样本数": sample_n,
             "与行业中位数差异%": round((actual / median - 1) * 100, 2),
-            "结论限制": "仅同供应商行业标签与可用报价样本中位数差异；不是合理价值判断，未调整盈利质量、资本结构、增速和商业模式",
+            "结论限制": "与本期同业有效样本中位数比较，未调整盈利质量、资本结构、增速和商业模式",
         }
     obj["行业参考"] = comparison or None
     if not comparison:

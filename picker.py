@@ -18,6 +18,7 @@ import os
 import sys
 import time
 from html import escape as escape_html
+from pathlib import Path
 
 from market_freshness import validate_delayed_hk_times, validate_eastmoney_a_times
 from tencent_market import fetch_tencent_a
@@ -25,6 +26,7 @@ from market_transport import EastmoneyBudget, ProviderCooldown
 from market_quality import MarketDataQualityError, numeric_column, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
 from peer_fundamentals import candidate_pool
+from ranking_analysis import SCORE_VERSION, compare_scores, comparison_html
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -298,7 +300,7 @@ def _rank_pct(s):
     return r.fillna(50.0)
 
 
-def _score_market(df, min_cap, min_amount, daily_trend_fallback=False):
+def _score_market(df, min_cap, min_amount, daily_trend_fallback=False, keep_components=False):
     d = df.copy()
     for col in ("最新价", "涨跌幅", "60日涨跌幅", "年初至今涨跌幅", "换手率", "量比",
                 "市盈率-动态", "市净率", "流通市值", "成交额", "振幅"):
@@ -325,11 +327,17 @@ def _score_market(df, min_cap, min_amount, daily_trend_fallback=False):
     d["趋势分"] = trend.round(1)
     d["活跃分"] = active.round(1)
     d["估值分"] = value.round(1)
+    if keep_components:
+        d["规模分"] = size.round(1)
+        d["_trend"], d["_active"], d["_value"], d["_size"] = trend, active, value, size
     return d.sort_values("评分", ascending=False)
 
 
-def score_a(df):
+def score_a_legacy(df):
     return _score_market(df, MIN_FLOAT_CAP_A, MIN_AMOUNT_A)
+
+
+score_a = score_a_legacy
 
 
 def score_hk(df):
@@ -431,6 +439,8 @@ th{background:#fafafa;font-size:13px;color:#555}
 .note{font-size:12px;color:#888;line-height:1.7;margin-top:24px}
 .ai-nav{background:#eaf2ff;border-radius:10px;padding:12px 14px;line-height:1.8}.ai-nav a{font-weight:700;color:#2455c7;text-decoration:none}.ai-nav span{color:#667085;font-size:12px}
 .tag{display:inline-block;background:#eef3ff;color:#2b5fd9;border-radius:4px;padding:1px 6px;font-size:12px}
+details{margin:10px 0;background:#fff;padding:12px;border:1px solid #e3e7ed;border-radius:6px}
+summary{cursor:pointer;font-weight:600}.comparison-scroll{overflow-x:auto}.comparison{min-width:480px}
 </style>
 </head>
 <body><div class="wrap">
@@ -480,25 +490,55 @@ def render_index(snapshot, has_report=False):
     if timing:
         quality_note += " · " + timing
     html += '<p class="sub">' + escape_html(quality_note) + '</p>'
-    return html + table_html("A 股 Top 20", snapshot["a_shares"], "A") + HTML_FOOT
+    return html + table_html("A 股 Top 20", snapshot["a_shares"], "A") + comparison_html(snapshot) + HTML_FOOT
 
 
-def main():
-    updated = datetime.now(CST).strftime("%Y-%m-%d %H:%M")
-    frame = fetch_a_market("A股", EM_HOSTS_A, EM_FS_A)
-    ranked = score_a(frame)
+def build_a_snapshot(frame, updated, *, published_codes=None):
+    ranked = _score_market(frame, MIN_FLOAT_CAP_A, MIN_AMOUNT_A, keep_components=True)
     if len(ranked) < TOP_N:
         raise MarketDataQualityError("通过有效市值、成交额门槛的 A 股不足 Top 20，保留已有榜单")
     if ranked.head(TOP_N)["评分"].nunique() <= 1:
         raise MarketDataQualityError(f"A股 前{TOP_N}名评分全部相同，疑似多因子评分退化；拒绝覆盖旧榜单")
+    if published_codes is not None:
+        # Older snapshots used an unstable sort on rounded scores. Resolve past
+        # ties using the published order only after verifying the top score vector.
+        codes = list(published_codes)
+        by_code = ranked.set_index("代码", drop=False)
+        if (len(codes) != TOP_N or len(set(codes)) != TOP_N or not set(codes) <= set(by_code.index)
+                or by_code.loc[codes, "评分"].tolist() != ranked.head(TOP_N)["评分"].tolist()):
+            raise MarketDataQualityError("已发布的 A 股名单与原规则分数不符")
+        ranked = pd.concat([by_code.loc[codes], by_code.drop(codes)]).reset_index(drop=True)
+    else:
+        ranked = ranked.sort_values(["评分", "代码"], ascending=[False, True])
+    quality = frame.attrs["quality"]
+    day = quality.get("报价日期") or quality.get("交易日期") or updated[:10]
+    ranked, selections, analysis = compare_scores(ranked, day, TOP_N)
     top = pick_rows(ranked, "A", TOP_N, industry_benchmarks(ranked))
-    snapshot = {"updated": updated, "quality": {"A股": frame.attrs["quality"]},
-                "a_shares": top, "a_peer_pool": candidate_pool(ranked, top[:5])}
-    print(f"A 股候选 {len(frame)} 只，入选 {len(top)} 只", flush=True)
+    for row in top:
+        details = analysis["stocks"][row["代码"]]
+        row.update({"行情来源": quality["行情来源"], "行业分类来源": analysis["source"]["title"],
+                    "行业分类发布日期": analysis["source"]["published"],
+                    "PE状态": details["pe_status"], "PB状态": details["pb_status"]})
+    snapshot = {"updated": updated, "quality": {"A股": quality}, "score_version": SCORE_VERSION,
+                "a_shares": top, "a_peer_pool": candidate_pool(ranked, top[:5]),
+                "comparison_selections": selections, "ranking_analysis": analysis}
+    return snapshot, ranked.drop(columns=["_trend", "_active", "_value", "_size"])
+
+
+def main():
+    from a_share_history import archive_close
+
+    updated = datetime.now(CST).strftime("%Y-%m-%d %H:%M")
+    frame = fetch_a_market("A股", EM_HOSTS_A, EM_FS_A)
+    collected_at = datetime.now(CST)
+    snapshot, ranked = build_a_snapshot(frame, updated)
+    print(f"A 股候选 {len(frame)} 只，入选 {len(snapshot['a_shares'])} 只", flush=True)
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
     os.makedirs(out_dir, exist_ok=True)
     html = render_index(snapshot, os.path.exists(os.path.join(out_dir, "ai.html")))
     serialized = json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False)
+    archive_close(Path(out_dir), frame, ranked, snapshot,
+                  collected_at=collected_at, score_version=SCORE_VERSION)
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:

@@ -493,5 +493,1182 @@
       "报价时间": "20261113161500"
     }
   ],
-  "a_peer_pool": {}
+  "a_peer_pool": {},
+  "ranking_analysis": {
+    "version": "a-legacy-v1+comparisons-v2",
+    "trade_date": "2026-11-13",
+    "universe": 3506,
+    "source": {
+      "title": "2026年上半年上市公司行业分类结果",
+      "published": "2026-09-30",
+      "source_url": "https://sp.capco.org.cn:82/file/202609/gwfile/2026shangbangupiaodaima.pdf",
+      "pdf_sha256": "1f1862ae2199a82a3a35c62f16a7d576120bca97f3de608989c8897df9b6c8a6",
+      "matched": 3487,
+      "total": 3506,
+      "rankable": 3455
+    },
+    "min_sector_size": 5,
+    "stocks": {
+      "601169": {
+        "name": "北京银行",
+        "industry": "货币金融服务",
+        "pe": 4.37,
+        "pb": 0.45,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 99.4,
+        "value_revised": 99.461,
+        "industry_rank": 1.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 1,
+          "revised": 1
+        },
+        "scores": {
+          "legacy": 86.8,
+          "revised": 86.8439,
+          "industry": 98.8889,
+          "sensitivity": 84.959
+        }
+      },
+      "002948": {
+        "name": "青岛银行",
+        "industry": "货币金融服务",
+        "pe": 6.17,
+        "pb": 0.86,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 96.0,
+        "value_revised": 96.4122,
+        "industry_rank": 2.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 2,
+          "revised": 2
+        },
+        "scores": {
+          "legacy": 85.7,
+          "revised": 85.7807,
+          "industry": 96.6667,
+          "sensitivity": 84.2888
+        }
+      },
+      "000001": {
+        "name": "平安银行",
+        "industry": "货币金融服务",
+        "pe": 4.48,
+        "pb": 0.49,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 99.1,
+        "value_revised": 99.2351,
+        "industry_rank": 3.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 3,
+          "revised": 3
+        },
+        "scores": {
+          "legacy": 84.0,
+          "revised": 84.0274,
+          "industry": 94.4444,
+          "sensitivity": 81.9872
+        }
+      },
+      "600919": {
+        "name": "江苏银行",
+        "industry": "货币金融服务",
+        "pe": 5.5,
+        "pb": 0.86,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 96.4,
+        "value_revised": 96.7556,
+        "industry_rank": 4.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 4,
+          "revised": 4
+        },
+        "scores": {
+          "legacy": 83.9,
+          "revised": 84.0046,
+          "industry": 92.2222,
+          "sensitivity": 81.7655
+        }
+      },
+      "601665": {
+        "name": "齐鲁银行",
+        "industry": "货币金融服务",
+        "pe": 7.09,
+        "pb": 0.79,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 95.8,
+        "value_revised": 96.358,
+        "industry_rank": 5.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 5,
+          "revised": 5
+        },
+        "scores": {
+          "legacy": 83.3,
+          "revised": 83.4445,
+          "industry": 90.0,
+          "sensitivity": 81.5206
+        }
+      },
+      "600977": {
+        "name": "中国电影",
+        "industry": "广播、电视、电影和录音制作业",
+        "pe": -632.08,
+        "pb": 2.89,
+        "pe_status": "亏损",
+        "pb_status": "正倍数",
+        "value_legacy": 47.1,
+        "value_revised": 18.4959,
+        "industry_rank": 1.0,
+        "industry_size": 18.0,
+        "market_ranks": {
+          "legacy": 6,
+          "revised": 57
+        },
+        "scores": {
+          "legacy": 81.8,
+          "revised": 76.0963,
+          "industry": 97.2222,
+          "sensitivity": 83.9786
+        }
+      },
+      "002931": {
+        "name": "锋龙股份",
+        "industry": "专用设备制造业",
+        "pe": 513.97,
+        "pb": 12.37,
+        "pe_status": "高倍数（参与排名）",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 4.4953,
+        "industry_rank": 2.0,
+        "industry_size": 219.0,
+        "market_ranks": {
+          "legacy": 7,
+          "revised": 115
+        },
+        "scores": {
+          "legacy": 81.8,
+          "revised": 72.7272,
+          "industry": 99.3151,
+          "sensitivity": 84.2675
+        }
+      },
+      "601328": {
+        "name": "交通银行",
+        "industry": "货币金融服务",
+        "pe": 7.66,
+        "pb": 0.64,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 96.2,
+        "value_revised": 96.7749,
+        "industry_rank": 6.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 8,
+          "revised": 6
+        },
+        "scores": {
+          "legacy": 81.8,
+          "revised": 81.8752,
+          "industry": 87.7778,
+          "sensitivity": 79.1409
+        }
+      },
+      "600926": {
+        "name": "杭州银行",
+        "industry": "货币金融服务",
+        "pe": 5.46,
+        "pb": 0.88,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 96.3,
+        "value_revised": 96.6226,
+        "industry_rank": 7.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 9,
+          "revised": 8
+        },
+        "scores": {
+          "legacy": 81.6,
+          "revised": 81.6748,
+          "industry": 85.5556,
+          "sensitivity": 79.2584
+        }
+      },
+      "000690": {
+        "name": "宝新能源",
+        "industry": "电力、热力生产和供应业",
+        "pe": 12.27,
+        "pb": 0.95,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 87.2,
+        "value_revised": 89.3155,
+        "industry_rank": 1.0,
+        "industry_size": 80.0,
+        "market_ranks": {
+          "legacy": 10,
+          "revised": 7
+        },
+        "scores": {
+          "legacy": 81.4,
+          "revised": 81.8274,
+          "industry": 99.375,
+          "sensitivity": 80.4349
+        }
+      },
+      "601939": {
+        "name": "建设银行",
+        "industry": "货币金融服务",
+        "pe": 8.66,
+        "pb": 0.86,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 93.9,
+        "value_revised": 94.7726,
+        "industry_rank": 8.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 11,
+          "revised": 12
+        },
+        "scores": {
+          "legacy": 81.1,
+          "revised": 81.2736,
+          "industry": 83.3333,
+          "sensitivity": 78.657
+        }
+      },
+      "603323": {
+        "name": "苏农银行",
+        "industry": "货币金融服务",
+        "pe": 4.42,
+        "pb": 0.51,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 99.1,
+        "value_revised": 99.1818,
+        "industry_rank": 9.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 12,
+          "revised": 13
+        },
+        "scores": {
+          "legacy": 81.1,
+          "revised": 81.0695,
+          "industry": 81.1111,
+          "sensitivity": 79.6024
+        }
+      },
+      "000651": {
+        "name": "格力电器",
+        "industry": "电气机械和器材制造业",
+        "pe": 9.72,
+        "pb": 1.49,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 86.1,
+        "value_revised": 87.6303,
+        "industry_rank": 1.0,
+        "industry_size": 227.0,
+        "market_ranks": {
+          "legacy": 13,
+          "revised": 10
+        },
+        "scores": {
+          "legacy": 81.1,
+          "revised": 81.4292,
+          "industry": 99.7797,
+          "sensitivity": 80.0417
+        }
+      },
+      "688801": {
+        "name": "燧原科技-U",
+        "industry": null,
+        "pe": -244.3,
+        "pb": 29.17,
+        "pe_status": "亏损",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 0.469,
+        "industry_rank": null,
+        "industry_size": null,
+        "market_ranks": {
+          "legacy": 14,
+          "revised": 153
+        },
+        "scores": {
+          "legacy": 81.0,
+          "revised": 71.1118,
+          "industry": null,
+          "sensitivity": 83.0288
+        }
+      },
+      "600583": {
+        "name": "海油工程",
+        "industry": "开采专业及辅助性活动",
+        "pe": 12.75,
+        "pb": 0.97,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 86.1,
+        "value_revised": 88.4055,
+        "industry_rank": 1.0,
+        "industry_size": 9.0,
+        "market_ranks": {
+          "legacy": 15,
+          "revised": 11
+        },
+        "scores": {
+          "legacy": 80.9,
+          "revised": 81.3922,
+          "industry": 94.4444,
+          "sensitivity": 79.4827
+        }
+      },
+      "002142": {
+        "name": "宁波银行",
+        "industry": "货币金融服务",
+        "pe": 6.73,
+        "pb": 0.92,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 94.8,
+        "value_revised": 95.4186,
+        "industry_rank": 10.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 16,
+          "revised": 14
+        },
+        "scores": {
+          "legacy": 80.8,
+          "revised": 80.8823,
+          "industry": 78.8889,
+          "sensitivity": 78.4488
+        }
+      },
+      "601128": {
+        "name": "XD常熟银",
+        "industry": "货币金融服务",
+        "pe": 4.82,
+        "pb": 0.7,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 98.1,
+        "value_revised": 98.2836,
+        "industry_rank": 11.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 17,
+          "revised": 15
+        },
+        "scores": {
+          "legacy": 80.8,
+          "revised": 80.8814,
+          "industry": 76.6667,
+          "sensitivity": 79.1609
+        }
+      },
+      "601998": {
+        "name": "中信银行",
+        "industry": "货币金融服务",
+        "pe": 7.03,
+        "pb": 0.68,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 96.4,
+        "value_revised": 96.9743,
+        "industry_rank": 12.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 18,
+          "revised": 16
+        },
+        "scores": {
+          "legacy": 80.6,
+          "revised": 80.7527,
+          "industry": 74.4444,
+          "sensitivity": 77.7625
+        }
+      },
+      "301218": {
+        "name": "华是科技",
+        "industry": "软件和信息技术服务业",
+        "pe": -95.5,
+        "pb": 12.83,
+        "pe_status": "亏损",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 1.5728,
+        "industry_rank": 2.0,
+        "industry_size": 236.0,
+        "market_ranks": {
+          "legacy": 19,
+          "revised": 158
+        },
+        "scores": {
+          "legacy": 80.6,
+          "revised": 70.8702,
+          "industry": 99.3644,
+          "sensitivity": 82.7961
+        }
+      },
+      "601838": {
+        "name": "成都银行",
+        "industry": "货币金融服务",
+        "pe": 6.62,
+        "pb": 0.94,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 94.7,
+        "value_revised": 95.3128,
+        "industry_rank": 13.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 20,
+          "revised": 17
+        },
+        "scores": {
+          "legacy": 80.4,
+          "revised": 80.4907,
+          "industry": 72.2222,
+          "sensitivity": 77.6822
+        }
+      },
+      "000700": {
+        "name": "模塑科技",
+        "industry": "汽车制造业",
+        "pe": 24.6,
+        "pb": 3.73,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 43.1,
+        "value_revised": 50.5951,
+        "industry_rank": 1.0,
+        "industry_size": 138.0,
+        "market_ranks": {
+          "legacy": 21,
+          "revised": 9
+        },
+        "scores": {
+          "legacy": 80.2,
+          "revised": 81.6737,
+          "industry": 99.6377,
+          "sensitivity": 82.6289
+        }
+      },
+      "601988": {
+        "name": "中国银行",
+        "industry": "货币金融服务",
+        "pe": 9.25,
+        "pb": 0.83,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 93.6,
+        "value_revised": 94.5968,
+        "industry_rank": 14.0,
+        "industry_size": 45.0,
+        "market_ranks": {
+          "legacy": 22,
+          "revised": 18
+        },
+        "scores": {
+          "legacy": 80.0,
+          "revised": 80.24,
+          "industry": 70.0,
+          "sensitivity": 77.2201
+        }
+      },
+      "600941": {
+        "name": "中国移动",
+        "industry": "电信、广播电视和卫星传输服务",
+        "pe": 15.55,
+        "pb": 1.58,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 75.0,
+        "value_revised": 78.6048,
+        "industry_rank": 1.0,
+        "industry_size": 19.0,
+        "market_ranks": {
+          "legacy": 24,
+          "revised": 19
+        },
+        "scores": {
+          "legacy": 79.5,
+          "revised": 80.2215,
+          "industry": 97.3684,
+          "sensitivity": 79.0
+        }
+      },
+      "002623": {
+        "name": "亚玛顿",
+        "industry": "非金属矿物制品业",
+        "pe": -26.28,
+        "pb": 2.0,
+        "pe_status": "亏损",
+        "pb_status": "正倍数",
+        "value_legacy": 55.1,
+        "value_revised": 26.0051,
+        "industry_rank": 2.0,
+        "industry_size": 76.0,
+        "market_ranks": {
+          "legacy": 29,
+          "revised": 101
+        },
+        "scores": {
+          "legacy": 79.2,
+          "revised": 73.3908,
+          "industry": 98.0263,
+          "sensitivity": 81.4359
+        }
+      },
+      "002100": {
+        "name": "天康生物",
+        "industry": "农副食品加工业",
+        "pe": -14.76,
+        "pb": 1.84,
+        "pe_status": "亏损",
+        "pb_status": "正倍数",
+        "value_legacy": 57.1,
+        "value_revised": 27.8467,
+        "industry_rank": 2.0,
+        "industry_size": 35.0,
+        "market_ranks": {
+          "legacy": 30,
+          "revised": 103
+        },
+        "scores": {
+          "legacy": 79.1,
+          "revised": 73.2962,
+          "industry": 95.7143,
+          "sensitivity": 80.5552
+        }
+      },
+      "605169": {
+        "name": "洪通燃气",
+        "industry": "燃气生产和供应业",
+        "pe": 15.38,
+        "pb": 1.88,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 71.9,
+        "value_revised": 75.6701,
+        "industry_rank": 1.0,
+        "industry_size": 21.0,
+        "market_ranks": {
+          "legacy": 31,
+          "revised": 23
+        },
+        "scores": {
+          "legacy": 78.9,
+          "revised": 79.6123,
+          "industry": 97.619,
+          "sensitivity": 80.1022
+        }
+      },
+      "601595": {
+        "name": "上海电影",
+        "industry": "广播、电视、电影和录音制作业",
+        "pe": 748.05,
+        "pb": 11.03,
+        "pe_status": "高倍数（参与排名）",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 4.0187,
+        "industry_rank": 3.0,
+        "industry_size": 18.0,
+        "market_ranks": {
+          "legacy": 32,
+          "revised": 195
+        },
+        "scores": {
+          "legacy": 78.8,
+          "revised": 69.5631,
+          "industry": 86.1111,
+          "sensitivity": 80.7192
+        }
+      },
+      "688826": {
+        "name": "频准激光",
+        "industry": null,
+        "pe": 168.64,
+        "pb": 10.84,
+        "pe_status": "高倍数（参与排名）",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 9.089,
+        "industry_rank": null,
+        "industry_size": null,
+        "market_ranks": {
+          "legacy": 34,
+          "revised": 171
+        },
+        "scores": {
+          "legacy": 78.5,
+          "revised": 70.32,
+          "industry": null,
+          "sensitivity": 80.8821
+        }
+      },
+      "002242": {
+        "name": "九阳股份",
+        "industry": "电气机械和器材制造业",
+        "pe": 212.64,
+        "pb": 6.33,
+        "pe_status": "高倍数（参与排名）",
+        "pb_status": "正倍数",
+        "value_legacy": 33.3,
+        "value_revised": 11.3083,
+        "industry_rank": 5.0,
+        "industry_size": 227.0,
+        "market_ranks": {
+          "legacy": 40,
+          "revised": 98
+        },
+        "scores": {
+          "legacy": 77.9,
+          "revised": 73.4999,
+          "industry": 98.0176,
+          "sensitivity": 80.391
+        }
+      },
+      "600228": {
+        "name": "返利科技",
+        "industry": "互联网和相关服务",
+        "pe": -94.93,
+        "pb": 12.69,
+        "pe_status": "亏损",
+        "pb_status": "高倍数（参与排名）",
+        "value_legacy": 50.0,
+        "value_revised": 1.5899,
+        "industry_rank": 3.0,
+        "industry_size": 57.0,
+        "market_ranks": {
+          "legacy": 44,
+          "revised": 237
+        },
+        "scores": {
+          "legacy": 77.8,
+          "revised": 68.0899,
+          "industry": 95.614,
+          "sensitivity": 80.1914
+        }
+      },
+      "603366": {
+        "name": "日出东方",
+        "industry": "电气机械和器材制造业",
+        "pe": 99.8,
+        "pb": 2.59,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 19.5,
+        "value_revised": 32.9468,
+        "industry_rank": 2.0,
+        "industry_size": 227.0,
+        "market_ranks": {
+          "legacy": 52,
+          "revised": 20
+        },
+        "scores": {
+          "legacy": 77.2,
+          "revised": 79.9262,
+          "industry": 99.3392,
+          "sensitivity": 81.2442
+        }
+      },
+      "002164": {
+        "name": "宁波东力",
+        "industry": "通用设备制造业",
+        "pe": 116.1,
+        "pb": 8.04,
+        "pe_status": "高倍数（参与排名）",
+        "pb_status": "正倍数",
+        "value_legacy": 31.3,
+        "value_revised": 14.0174,
+        "industry_rank": 1.0,
+        "industry_size": 144.0,
+        "market_ranks": {
+          "legacy": 63,
+          "revised": 116
+        },
+        "scores": {
+          "legacy": 76.1,
+          "revised": 72.6625,
+          "industry": 99.6528,
+          "sensitivity": 78.9864
+        }
+      },
+      "000026": {
+        "name": "飞亚达",
+        "industry": "零售业",
+        "pe": 50.07,
+        "pb": 2.92,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 29.9,
+        "value_revised": 40.8386,
+        "industry_rank": 1.0,
+        "industry_size": 66.0,
+        "market_ranks": {
+          "legacy": 74,
+          "revised": 40
+        },
+        "scores": {
+          "legacy": 75.5,
+          "revised": 77.7144,
+          "industry": 99.2424,
+          "sensitivity": 78.8992
+        }
+      },
+      "603268": {
+        "name": "松发股份",
+        "industry": "非金属矿物制品业",
+        "pe": 19.64,
+        "pb": 7.58,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 40.1,
+        "value_revised": 46.8593,
+        "industry_rank": 1.0,
+        "industry_size": 76.0,
+        "market_ranks": {
+          "legacy": 84,
+          "revised": 53
+        },
+        "scores": {
+          "legacy": 75.0,
+          "revised": 76.3958,
+          "industry": 99.3421,
+          "sensitivity": 76.9486
+        }
+      },
+      "000902": {
+        "name": "新洋丰",
+        "industry": "化学原料和化学制品制造业",
+        "pe": 10.07,
+        "pb": 1.44,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 86.1,
+        "value_revised": 87.7434,
+        "industry_rank": 1.0,
+        "industry_size": 191.0,
+        "market_ranks": {
+          "legacy": 95,
+          "revised": 78
+        },
+        "scores": {
+          "legacy": 74.2,
+          "revised": 74.5441,
+          "industry": 99.7382,
+          "sensitivity": 72.4426
+        }
+      },
+      "600285": {
+        "name": "羚锐制药",
+        "industry": "医药制造业",
+        "pe": 13.47,
+        "pb": 3.73,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 59.8,
+        "value_revised": 63.8891,
+        "industry_rank": 1.0,
+        "industry_size": 201.0,
+        "market_ranks": {
+          "legacy": 112,
+          "revised": 84
+        },
+        "scores": {
+          "legacy": 73.4,
+          "revised": 74.2316,
+          "industry": 99.7512,
+          "sensitivity": 73.5221
+        }
+      },
+      "000538": {
+        "name": "云南白药",
+        "industry": "医药制造业",
+        "pe": 15.32,
+        "pb": 2.45,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 66.3,
+        "value_revised": 70.4399,
+        "industry_rank": 2.0,
+        "industry_size": 201.0,
+        "market_ranks": {
+          "legacy": 127,
+          "revised": 95
+        },
+        "scores": {
+          "legacy": 72.8,
+          "revised": 73.6652,
+          "industry": 99.2537,
+          "sensitivity": 71.8348
+        }
+      },
+      "000100": {
+        "name": "TCL科技",
+        "industry": "计算机、通信和其他电子设备制造业",
+        "pe": 14.66,
+        "pb": 1.47,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 77.8,
+        "value_revised": 81.0448,
+        "industry_rank": 1.0,
+        "industry_size": 543.0,
+        "market_ranks": {
+          "legacy": 132,
+          "revised": 106
+        },
+        "scores": {
+          "legacy": 72.6,
+          "revised": 73.2166,
+          "industry": 99.9079,
+          "sensitivity": 72.0692
+        }
+      },
+      "600060": {
+        "name": "海信视像",
+        "industry": "计算机、通信和其他电子设备制造业",
+        "pe": 13.63,
+        "pb": 1.51,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 78.9,
+        "value_revised": 81.8581,
+        "industry_rank": 2.0,
+        "industry_size": 543.0,
+        "market_ranks": {
+          "legacy": 151,
+          "revised": 123
+        },
+        "scores": {
+          "legacy": 71.6,
+          "revised": 72.2316,
+          "industry": 99.7238,
+          "sensitivity": 69.9649
+        }
+      },
+      "603396": {
+        "name": "金辰股份",
+        "industry": "专用设备制造业",
+        "pe": 80.12,
+        "pb": 1.87,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 29.9,
+        "value_revised": 42.2012,
+        "industry_rank": 1.0,
+        "industry_size": 219.0,
+        "market_ranks": {
+          "legacy": 152,
+          "revised": 88
+        },
+        "scores": {
+          "legacy": 71.6,
+          "revised": 74.0206,
+          "industry": 99.7717,
+          "sensitivity": 74.9539
+        }
+      },
+      "600210": {
+        "name": "紫江企业",
+        "industry": "橡胶和塑料制品业",
+        "pe": 10.06,
+        "pb": 1.46,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 85.9,
+        "value_revised": 87.4853,
+        "industry_rank": 1.0,
+        "industry_size": 71.0,
+        "market_ranks": {
+          "legacy": 164,
+          "revised": 141
+        },
+        "scores": {
+          "legacy": 71.2,
+          "revised": 71.4854,
+          "industry": 99.2958,
+          "sensitivity": 69.6709
+        }
+      },
+      "688018": {
+        "name": "乐鑫科技",
+        "industry": "软件和信息技术服务业",
+        "pe": 51.19,
+        "pb": 8.15,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 13.5,
+        "value_revised": 25.5252,
+        "industry_rank": 1.0,
+        "industry_size": 236.0,
+        "market_ranks": {
+          "legacy": 235,
+          "revised": 150
+        },
+        "scores": {
+          "legacy": 68.7,
+          "revised": 71.148,
+          "industry": 99.7881,
+          "sensitivity": 71.2294
+        }
+      },
+      "600699": {
+        "name": "均胜电子",
+        "industry": "计算机、通信和其他电子设备制造业",
+        "pe": 26.21,
+        "pb": 1.98,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 55.3,
+        "value_revised": 62.2816,
+        "industry_rank": 3.0,
+        "industry_size": 543.0,
+        "market_ranks": {
+          "legacy": 236,
+          "revised": 180
+        },
+        "scores": {
+          "legacy": 68.6,
+          "revised": 70.04,
+          "industry": 99.5396,
+          "sensitivity": 69.8009
+        }
+      },
+      "002913": {
+        "name": "奥士康",
+        "industry": "计算机、通信和其他电子设备制造业",
+        "pe": 32.03,
+        "pb": 4.17,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 33.8,
+        "value_revised": 42.8956,
+        "industry_rank": 4.0,
+        "industry_size": 543.0,
+        "market_ranks": {
+          "legacy": 264,
+          "revised": 184
+        },
+        "scores": {
+          "legacy": 68.0,
+          "revised": 69.7969,
+          "industry": 99.3554,
+          "sensitivity": 70.443
+        }
+      },
+      "300428": {
+        "name": "立中集团",
+        "industry": "有色金属冶炼和压延加工业",
+        "pe": 10.96,
+        "pb": 1.44,
+        "pe_status": "正倍数",
+        "pb_status": "正倍数",
+        "value_legacy": 84.4,
+        "value_revised": 86.3253,
+        "industry_rank": 1.0,
+        "industry_size": 74.0,
+        "market_ranks": {
+          "legacy": 366,
+          "revised": 313
+        },
+        "scores": {
+          "legacy": 65.4,
+          "revised": 65.8309,
+          "industry": 99.3243,
+          "sensitivity": 63.8735
+        }
+      }
+    },
+    "overlaps": {
+      "legacy": {
+        "top5": 5,
+        "top20": 20
+      },
+      "revised": {
+        "top5": 5,
+        "top20": 16
+      },
+      "industry": {
+        "top5": 0,
+        "top20": 4
+      },
+      "sensitivity": {
+        "top5": 2,
+        "top20": 11
+      }
+    },
+    "concentrations": {
+      "legacy": {
+        "货币金融服务": 13,
+        "广播、电视、电影和录音制作业": 1,
+        "专用设备制造业": 1,
+        "电力、热力生产和供应业": 1,
+        "电气机械和器材制造业": 1,
+        "未分类": 1,
+        "开采专业及辅助性活动": 1,
+        "软件和信息技术服务业": 1
+      },
+      "revised": {
+        "货币金融服务": 14,
+        "电气机械和器材制造业": 2,
+        "电力、热力生产和供应业": 1,
+        "汽车制造业": 1,
+        "开采专业及辅助性活动": 1,
+        "电信、广播电视和卫星传输服务": 1
+      },
+      "industry": {
+        "计算机、通信和其他电子设备制造业": 4,
+        "软件和信息技术服务业": 2,
+        "电气机械和器材制造业": 2,
+        "专用设备制造业": 2,
+        "医药制造业": 2,
+        "化学原料和化学制品制造业": 1,
+        "通用设备制造业": 1,
+        "汽车制造业": 1,
+        "电力、热力生产和供应业": 1,
+        "非金属矿物制品业": 1,
+        "有色金属冶炼和压延加工业": 1,
+        "橡胶和塑料制品业": 1,
+        "零售业": 1
+      },
+      "sensitivity": {
+        "货币金融服务": 5,
+        "电气机械和器材制造业": 3,
+        "广播、电视、电影和录音制作业": 2,
+        "未分类": 2,
+        "专用设备制造业": 1,
+        "软件和信息技术服务业": 1,
+        "汽车制造业": 1,
+        "非金属矿物制品业": 1,
+        "农副食品加工业": 1,
+        "电力、热力生产和供应业": 1,
+        "互联网和相关服务": 1,
+        "燃气生产和供应业": 1
+      }
+    },
+    "valuation_counts": {
+      "PE状态": {
+        "正倍数": 2159,
+        "亏损": 798,
+        "高倍数（参与排名）": 549
+      },
+      "PB状态": {
+        "正倍数": 3283,
+        "高倍数（参与排名）": 214,
+        "净资产为负": 9
+      }
+    }
+  },
+  "comparison_selections": {
+    "legacy": [
+      "601169",
+      "002948",
+      "000001",
+      "600919",
+      "601665",
+      "600977",
+      "002931",
+      "601328",
+      "600926",
+      "000690",
+      "601939",
+      "603323",
+      "000651",
+      "688801",
+      "600583",
+      "002142",
+      "601128",
+      "601998",
+      "301218",
+      "601838"
+    ],
+    "revised": [
+      "601169",
+      "002948",
+      "000001",
+      "600919",
+      "601665",
+      "601328",
+      "000690",
+      "600926",
+      "000700",
+      "000651",
+      "600583",
+      "601939",
+      "603323",
+      "002142",
+      "601128",
+      "601998",
+      "601838",
+      "601988",
+      "600941",
+      "603366"
+    ],
+    "industry": [
+      "000100",
+      "688018",
+      "000651",
+      "603396",
+      "600285",
+      "000902",
+      "600060",
+      "002164",
+      "000700",
+      "600699",
+      "000690",
+      "301218",
+      "002913",
+      "603268",
+      "603366",
+      "300428",
+      "002931",
+      "600210",
+      "000538",
+      "000026"
+    ],
+    "sensitivity": [
+      "601169",
+      "002948",
+      "002931",
+      "600977",
+      "688801",
+      "301218",
+      "000700",
+      "000001",
+      "600919",
+      "601665",
+      "002623",
+      "603366",
+      "688826",
+      "601595",
+      "002100",
+      "000690",
+      "002242",
+      "600228",
+      "605169",
+      "000651"
+    ]
+  },
+  "score_version": "a-legacy-v1+comparisons-v2"
 }

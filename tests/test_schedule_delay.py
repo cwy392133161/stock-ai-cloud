@@ -170,7 +170,8 @@ class SchedulePublicationTests(unittest.TestCase):
         self.assertEqual(text.count("SCHEDULE_EVENT_NAME: ${{ github.event_name }}"), 2)
         self.assertLess(text.index("git push"), text.index('if status.get("schedule_state") in SCHEDULE_BLOCK_REASONS:'))
         self.assertEqual(text.count("steps.trading_day.outputs.market_ready == 'true'"), 1)
-        self.assertEqual(text.count("inputs.report_only || steps.screening.outcome == 'success'"), 2)
+        # PDF tooling, paid-response cache restore and generation use the same eligibility gate.
+        self.assertEqual(text.count("inputs.report_only || steps.screening.outcome == 'success'"), 3)
 
     def test_actual_final_workflow_check_marks_missed_or_repeated_run_red(self):
         text = (ROOT / ".github/workflows/daily.yml").read_text()

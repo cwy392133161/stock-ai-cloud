@@ -93,6 +93,9 @@ def parse_quotes(text, expected, observed):
         fresh = quote_is_fresh(quote_time, observed)
         row = {"代码": code[2:], "名称": f[1],
                "最新价": number(f[3]), "涨跌幅": number(f[32]),
+               "昨收": number(f[4]), "今开": number(f[5]),
+               "最高": number(f[33]), "最低": number(f[34]),
+               "涨停价": number(f[47]), "跌停价": number(f[48]),
                "成交量": number(f[36]), "成交额": number(f[57])*1e4,
                "换手率": number(f[38]), "量比": number(f[49]),
                "流通市值": number(f[44])*1e8, "总市值": number(f[45])*1e8,

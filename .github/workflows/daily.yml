@@ -74,7 +74,10 @@ jobs:
         id: screening
         if: ${{ !inputs.report_only && steps.trading_day.outputs.market_ready == 'true' }}
         continue-on-error: true
-        run: python picker.py
+        run: |
+          python picker.py
+          python trend_audit.py
+          python a_share_history.py
 
       - name: 选股失败时恢复已发布的榜单与快照
         if: ${{ steps.screening.outcome == 'failure' }}
@@ -85,6 +88,12 @@ jobs:
         if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
         run: command -v pdftotext || (sudo apt-get update -qq && sudo apt-get install -y poppler-utils)
 
+      - uses: actions/cache/restore@v4
+        if: vars.AI_ENABLED == 'true' && !inputs.skip_ai && (inputs.report_only || steps.screening.outcome == 'success')
+        with:
+          path: ${{ runner.temp }}/research-cache
+          key: daily-ai-${{ hashFiles('docs/data.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: daily-ai-${{ hashFiles('docs/data.json') }}-
       - name: 生成可选 AI 深度分析
         id: deep_research
         if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
@@ -94,7 +103,14 @@ jobs:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_BASE_URL: ${{ vars.AI_BASE_URL }}
           AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_CACHE_DIR: ${{ runner.temp }}/research-cache
         run: python ai_report.py
+
+      - uses: actions/cache/save@v4
+        if: always() && (steps.deep_research.outcome == 'success' || steps.deep_research.outcome == 'failure')
+        with:
+          path: ${{ runner.temp }}/research-cache
+          key: daily-ai-${{ hashFiles('docs/data.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: AI 生成失败时恢复已发布的研究页
         if: ${{ steps.deep_research.outcome == 'failure' }}
@@ -124,6 +140,7 @@ jobs:
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
           git add docs/index.html docs/data.json docs/ai-status.json
+          if [ "${{ steps.screening.outcome }}" = success ]; then git add -- docs/history; fi
           if [ -f docs/ai.html ]; then git add docs/ai.html; fi
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push

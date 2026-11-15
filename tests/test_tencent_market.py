@@ -12,6 +12,7 @@ def quote(code, date="20261110150000"):
     fields = ["0"] * 80
     for index, value in {1:"测试",2:code[2:],3:"10",30:date,32:"2",36:"100000",
                          38:"1.5",39:"99",43:"3",44:"40",45:"50",46:"2",
+                         4:"9.8",5:"9.9",33:"10.1",34:"9.85",47:"10.78",48:"8.82",
                          49:"1.2",52:"12",57:"10000"}.items():
         fields[index] = value
     return 'v_' + code + '="' + "~".join(fields) + '";'
@@ -24,6 +25,8 @@ class TencentTests(unittest.TestCase):
         self.assertEqual(row["成交额"], 1e8)
         self.assertEqual(row["市盈率-动态"], 12)
         self.assertEqual(row["量比"], 1.2)
+        self.assertEqual([row[k] for k in ("昨收", "今开", "最高", "最低", "涨停价", "跌停价")],
+                         [9.8, 9.9, 10.1, 9.85, 10.78, 8.82])
 
     def test_stale_quotes_are_not_relabelled(self):
         row = tx.parse_quotes(quote("sz000001","20261109150000"),
