@@ -10,6 +10,7 @@ from research_quality import evidence_quality
 from period_reports import matched_report_notices
 from research_differentiation import focal_question
 from cash_profit_observations import cash_profit_observation
+from bank_evidence import bank_metrics, bank_focus
 
 PERCENT = re.compile(
     r"^([+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)"
@@ -140,7 +141,9 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if not historical:
         historical.append("缺少两个可比较年度的同报告季数据，不能推断三年趋势")
 
-    cash_observation = cash_profit_observation(finance, as_of or stock.get("行情快照日期"))
+    cutoff = as_of or stock.get("行情快照日期")
+    bank = bank_metrics(stock, finance, evidence, cutoff)
+    cash_observation = None if bank is not None else cash_profit_observation(finance, cutoff)
     if cash_observation:
         counterarguments.insert(0, cash_observation["观察"])
         # Replace the generic profitability follow-up, retaining source repair.
@@ -187,7 +190,9 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     if quality["缺口"]:
         coverage.append("待补证：" + "；".join(quality["缺口"]))
 
-    focus = focal_question(stock, finance, evidence, peer_finance)
+    focus = bank_focus(stock, bank) if bank is not None else focal_question(stock, finance, evidence, peer_finance)
+    if bank is not None:
+        checkpoints.insert(0, focus["下一期关键问题"])
     # Distinguish hypotheses from forecasts: choose evidence-specific
     # scenarios instead of copying the same three generic paragraphs.
     if revenue_yoy is None:
@@ -211,7 +216,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
         profit_check = "归母净利润同比变化能否延续，且绝对额盈亏口径一致"
 
     if valuation.get("行业参考"):
-        valuation_check = "重新核验同供应商同标签PE/PB样本，排除盈利质量变化的影响"
+        valuation_check = "按当期行业分类重新核验同行 PE/PB 样本，并检查盈利质量变化"
     else:
         valuation_check = "行业估值样本仍不充分时不作同行高低判断"
 
@@ -222,6 +227,7 @@ def build_research_brief(stock, finance, disclosure, as_of=None, peer_finance=No
     ]
 
     return {
+        **({"银行指标核对": bank} if bank is not None else {}),
         "行情入选依据": "；".join(market_view),
         "财务变化线索": "；".join(change),
         "反面证据": counterarguments[:3],

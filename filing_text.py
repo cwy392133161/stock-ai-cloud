@@ -1,9 +1,12 @@
 """Bounded extraction of page-numbered evidence from official disclosure PDFs."""
 import re
 import subprocess
+import hashlib
 from http.client import HTTPException
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from bank_evidence import is_current_bank_report, select_bank_passages
 
 HOSTS = {"static.cninfo.com.cn", "www1.hkexnews.hk"}
 MAX_BYTES = 24 * 1024 * 1024
@@ -92,16 +95,20 @@ def _nearest(lines, i, predicate, *, radius=24):
     return None
 
 
-def extract(data):
+def layout_pages(data):
+    proc = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"],
+                          input=data, capture_output=True, check=True, timeout=25)
+    return proc.stdout.decode("utf-8", errors="replace").split("\f")
+
+
+def extract(data, *, pages=None):
     """Find short page-cited passages, retaining only explicit page-local context.
 
     Table heading and unit fields state '未定位' if absent; the LLM must not
     borrow a heading from a different page, row, or reporting period.
     """
-    proc = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"],
-                          input=data, capture_output=True, check=True, timeout=25)
     candidates = []
-    for page, text in enumerate(proc.stdout.decode("utf-8", errors="replace").split("\f"), 1):
+    for page, text in enumerate(layout_pages(data) if pages is None else pages, 1):
         lines = [line.rstrip().strip() for line in text.splitlines() if line.strip()]
         for i, line in enumerate(lines):
             if re.search(r"\.{4,}|…{2,}", line):
@@ -144,7 +151,7 @@ def extract(data):
     return sorted(chosen, key=lambda c: c["页"])
 
 
-def read_filings(notices):
+def read_filings(notices, *, bank_period=None):
     successes = 0
     for index, notice in enumerate(notices, 1):
         notice["编号"] = f"D{index}"
@@ -152,9 +159,32 @@ def read_filings(notices):
             notice["正文状态"] = "仅列索引（已选取两份正文）"
             continue
         try:
-            passages = extract(download(notice["链接"]))
+            data = download(notice["链接"])
+            if bank_period and is_current_bank_report(notice, bank_period):
+                pages = layout_pages(data)
+                notice["银行指标摘录"] = select_bank_passages(pages, bank_period)
+                notice["原文SHA256"] = hashlib.sha256(data).hexdigest()
+                passages = extract(data, pages=pages)
+            else:
+                passages = extract(data)
             notice["正文摘录"] = passages
             notice["正文状态"] = "已提取正文片段" if passages else "未提取到相关可读文字"
             successes += bool(passages)
         except (HTTPException, OSError, ValueError, subprocess.SubprocessError) as exc:
             notice["正文状态"] = f"正文读取失败（{type(exc).__name__}）"
+
+
+def enrich_frozen_bank_filings(notices, period):
+    """Upgrade legacy excerpts against the same official filing and pinned hash."""
+    for notice in notices:
+        if "银行指标摘录" in notice or not is_current_bank_report(notice, period):
+            continue
+        try:
+            data = download(notice["链接"])
+            digest = hashlib.sha256(data).hexdigest()
+            if notice.get("原文SHA256", digest) != digest:
+                continue
+            notice["银行指标摘录"] = select_bank_passages(layout_pages(data), period)
+            notice["原文SHA256"] = digest
+        except (HTTPException, OSError, ValueError, subprocess.SubprocessError):
+            continue
