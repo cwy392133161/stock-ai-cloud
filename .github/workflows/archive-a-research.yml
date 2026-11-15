@@ -1,0 +1,86 @@
+name: November 13 archived A-share research
+
+on:
+  push:
+    branches: [ops/research-20261113-a]
+    paths:
+      - '.github/workflows/archive-a-research.yml'
+      - '*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: archive-research-20261113-a
+  cancel-in-progress: false
+
+env:
+  ARCHIVE: docs/history/2026-11-13
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  generate:
+    if: github.ref == 'refs/heads/ops/research-20261113-a'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - run: command -v pdftotext || (sudo apt-get update -qq && sudo apt-get install -y poppler-utils)
+      - name: Verify archive and evidence-review code
+        run: |
+          python -m unittest discover -s tests -p "test_*.py"
+          python -m unittest test_finance test_hk_original test_hk_products test_report
+      - name: Generate research for the five archived A-share selections
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          AI_ENABLED: ${{ vars.AI_ENABLED }}
+        run: |
+          test "$AI_ENABLED" = true
+          git fetch --no-tags origin "$GITHUB_REF"
+          if git cat-file -e "FETCH_HEAD:$ARCHIVE/ai.html" 2>/dev/null; then
+            git show "FETCH_HEAD:$ARCHIVE/ai.html" > "$RUNNER_TEMP/ai.html"
+          else
+            echo "研究模型 $AI_MODEL"
+            python archived_a_snapshot.py "$ARCHIVE" "$RUNNER_TEMP/ai.html" --evidence "$ARCHIVE/a-research-sources.json.gz"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audited-a-research-2026-11-13
+          path: ${{ runner.temp }}/ai.html
+          if-no-files-found: error
+          retention-days: 7
+
+  archive:
+    needs: generate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/research-20261113-a
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: audited-a-research-2026-11-13
+          path: ${{ runner.temp }}/reviewed-report
+      - name: Verify stock links and update the dated archive
+        run: |
+          python archive_research.py "$ARCHIVE" "$RUNNER_TEMP/reviewed-report/ai.html"
+          git config user.name stock-bot
+          git config user.email stock-bot@users.noreply.github.com
+          git add "$ARCHIVE/ai.html" "$ARCHIVE/index.html" "$ARCHIVE/summary.json" docs/history/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish November 13 A-share research for the five archived selections"
+            git push origin HEAD:refs/heads/ops/research-20261113-a
+          fi

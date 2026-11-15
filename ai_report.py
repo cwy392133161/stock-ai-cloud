@@ -1,13 +1,18 @@
 # Optional research layer for the existing ranked stocks.
 import os, json, html, pathlib, requests, time
+import hashlib
 import re
+from tempfile import NamedTemporaryFile
+from copy import deepcopy
+from urllib.parse import urlsplit
 import unicodedata
 import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
-from disclosures import fetch_disclosures
-from filing_text import read_filings
+from disclosures import HK, STATIC, fetch_disclosures
+from filing_text import read_filings, trusted
+from financial_timing import provider_date
 from finance import fetch_financial
 from finance_facts import financial_comparison
 from research_brief import build_research_brief
@@ -18,15 +23,17 @@ from hk_products import stock_directory
 
 ROOT = pathlib.Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
+MARKET_FIELDS = {"A股": "a_shares", "港股": "hk_shares"}
+MODEL_SETTINGS = ("AI_API_KEY", "AI_MODEL", "AI_BASE_URL")
 
-def stamp_generated_report(report_html):
+def stamp_generated_report(report_html, *, expected_count=10):
     """Mark a newly completed report from this ruleset, not a banner rewrite.
 
-    Called only after the full generation/review pipeline has produced all ten
-    results. publish_guard also requires a successful generation step, matching
+    Called only after the generation/review pipeline has completed its scope.
+    publish_guard also requires a successful generation step, matching
     snapshot, valid counts, and a different generation ID to lift a review hold.
     """
-    if '<meta name="research-total-count" content="10">' not in report_html:
+    if f'<meta name="research-total-count" content="{expected_count}">' not in report_html:
         raise ValueError("Cannot stamp an incomplete research report")
     marker = ('<meta name="research-audit-version" content="evidence-scope-v2">'
               '<meta name="research-generation-id" content="' + uuid.uuid4().hex + '">')
@@ -511,9 +518,11 @@ def render_research_brief(brief):
     return "\n".join(parts)
 
 
-def render_report(data, output, updated, archived_codes=(), disclosures=None, peer_data=None):
+def render_report(data, output, updated, archived_codes=(), disclosures=None, peer_data=None,
+                  *, markets=("A股", "港股")):
     summaries = [finance_summary(market, [f for m, _, _, f in output if m == market])[0]
-                 for market in ("A股", "港股")]
+                 for market in markets]
+    scope = "、".join(f"{market}前5只" for market in markets) + f"，共{len(output)}只。"
     # Compute research gates before HTML so page-level status is unambiguous.
     verified = {}
     for market, stock, content, finance in output:
@@ -554,7 +563,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
              '"><meta name="research-total-count" content="' + str(len(output)) + '">',
              '<h1>可复核的股票研究档案</h1><p><a href="./">返回选股榜</a></p>',
              '<small>行情快照：'+esc(data.get("updated","未知"))+'；AI 生成：'+esc(updated)+'（北京时间）</small>',
-             '<p>A股前5只、港股前5只，共10只。分层展示行情原始倍数、同报告季多期财务对照、行业截面样本（若可用）、官方PDF页码摘录、相反证据和跟踪条件。来源缺失不会被AI推断补齐；这些资料不能替代完整审计、行业访谈和估值模型。</p>']
+             '<p>' + esc(scope) + '分层展示行情原始倍数、同报告季多期财务对照、行业截面样本（若可用）、官方PDF页码摘录、相反证据和跟踪条件。来源缺失不会被AI推断补齐；这些资料不能替代完整审计、行业访谈和估值模型。</p>']
     parts.append('<p><b>含逐字证据的研究：' + str(approved) + '/' +
                  str(len(output)) + '；数据支持的条件性研究：' +
                  str(limited) + '/' + str(len(output)) + '。</b> '
@@ -570,7 +579,7 @@ def render_report(data, output, updated, archived_codes=(), disclosures=None, pe
         else:
             source = "https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh"
             source_name = "港交所披露易：检索公司公告和财报"
-        parts.append('<article><b>'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
+        parts.append('<article><b id="stock-'+esc(code)+'">'+esc(market)+' · '+esc(s.get("名称",""))+' ('+esc(code)+')</b>')
         query_code = re.sub(r"^(?:sh|sz|bj)(?=[0-9]{6}$)", "", code, flags=re.I) if market == "A股" else code
         parts.append('<p><a href="'+esc(source)+'" target="_blank" rel="noopener noreferrer">'+esc(source_name)+'</a>（请按股票代码 '+esc(query_code)+' 查询，核对报告期和披露日期）</p>')
         brief, assessment = verified[(market, code)]
@@ -738,30 +747,148 @@ def request_deepseek(endpoint, key, model, prompt, retry_window_seconds=300):
                      f"已尝试 {attempt} 次，最后状态：{last_error}")
 
 
-def main():
-    key = os.getenv("AI_API_KEY", "").strip()
-    model = os.getenv("AI_MODEL", "").strip()
-    endpoint = os.getenv("AI_BASE_URL", "").strip().rstrip("/")
-    if not (key and model and endpoint):
-        if os.getenv("AI_ENABLED", "").strip().lower() == "true":
-            raise ValueError("AI 已启用，但 AI_API_KEY、AI_MODEL 或 AI_BASE_URL 配置不完整")
-        print("AI 未配置：跳过 AI 报告，原有选股不受影响")
+def _atomic_write(path, content):
+    tmp = NamedTemporaryFile(mode="w", dir=path.parent, encoding="utf-8", delete=False)
+    temporary = pathlib.Path(tmp.name)
+    try:
+        with tmp:
+            tmp.write(content)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _request_with_checkpoint(endpoint, key, model, prompt, cache_dir):
+    if cache_dir is None:
+        return request_deepseek(endpoint, key, model, prompt)
+    identity = json.dumps([endpoint, model, prompt], ensure_ascii=False).encode("utf-8")
+    checkpoint = cache_dir / (hashlib.sha256(identity).hexdigest() + ".txt")
+    if checkpoint.is_file():
+        content = checkpoint.read_text(encoding="utf-8")
+        if content.strip():
+            print("已复用相同模型和输入的付费回复", flush=True)
+            return content
+    content = request_deepseek(endpoint, key, model, prompt)
+    _atomic_write(checkpoint, content)
+    return content
+
+
+def _check_evidence_date(value, cutoff):
+    parsed = provider_date(value)
+    if not parsed or parsed > cutoff:
+        raise ValueError("归档证据日期无效或晚于交易日")
+
+
+def _check_finance_dates(item, cutoff):
+    if isinstance(item, list):
+        for row in item:
+            _check_finance_dates(row, cutoff)
+    elif isinstance(item, dict):
+        for key, value in item.items():
+            if key == "披露日期" and value == "接口未提供":
+                continue
+            if key in ("报告期", "基期", "披露日期", "披露时点依据", "NOTICE_DATE", "UPDATE_DATE"):
+                _check_evidence_date(value, cutoff)
+            elif isinstance(value, (list, dict)):
+                _check_finance_dates(value, cutoff)
+
+
+def _check_official_pdf(url, market):
+    expected = STATIC if market == "A股" else HK
+    if (not isinstance(url, str) or not trusted(url) or not url.startswith(expected + "/")
+            or not urlsplit(url).path.lower().endswith(".pdf")):
+        raise ValueError("归档公告缺少本市场的官方 PDF 地址")
+
+
+def _validate_evidence_snapshot(rows, stocks, cutoff):
+    if set(rows) != {str(stock["代码"]) for _, stock in stocks}:
+        raise ValueError("归档资料与研究名单不一致")
+    _check_evidence_date(cutoff, cutoff)
+    for market, stock in stocks:
+        code = str(stock["代码"])
+        row = rows[code]
+        if (row.get("code"), row.get("market"), row.get("as_of")) != (code, market, cutoff):
+            raise ValueError("归档资料的代码、市场或交易日不符")
+        finance, evidence = row["finance"], row["disclosures"]
+        _check_finance_dates(finance, cutoff)
+        report = evidence.get("对应报告期财报") or {}
+        if report:
+            if report.get("报告期") != finance.get("报告期"):
+                raise ValueError("归档财报与财务指标报告期不符")
+            _check_evidence_date(report.get("报告期"), cutoff)
+            if report.get("链接") or report.get("公告日期"):
+                _check_official_pdf(report.get("链接"), market)
+                _check_evidence_date(report.get("公告日期"), cutoff)
+        for index, notice in enumerate(evidence["公告"], 1):
+            _check_evidence_date(notice["日期"], cutoff)
+            _check_official_pdf(notice["链接"], market)
+            label = f"D{index}"
+            if notice.get("编号", label) != label:
+                raise ValueError("归档 PDF 编号与公告顺序不符")
+            if notice.get("报告期匹配") and notice["报告期匹配"] != finance.get("报告期"):
+                raise ValueError("归档公告所对应的报告期不符")
+            for excerpt in notice.get("正文摘录", []):
+                if (notice.get("编号") != label or type(excerpt.get("页")) is not int
+                        or excerpt["页"] < 1 or not str(excerpt.get("摘录") or "").strip()):
+                    raise ValueError("归档 PDF 摘录缺少对应的编号、原文或页码")
+
+
+def _read_frozen_filings(notices):
+    available = sum(bool(notice.get("正文摘录")) for notice in notices)
+    if not available:
+        read_filings(notices)
         return
+    for index, notice in enumerate(notices, 1):
+        if notice.get("正文摘录"):
+            continue
+        if available < 2:
+            read_filings([notice])
+            available += bool(notice.get("正文摘录"))
+        else:
+            notice.setdefault("正文状态", "仅列索引（已选取两份正文）")
+        notice["编号"] = f"D{index}"
+
+
+def generate_report(data, output_path, *, markets=("A股", "港股"), cache_dir=None,
+                    evidence_snapshot=None):
+    """Research the first five ranked stocks of each requested market using this snapshot."""
+    key, model, endpoint = (os.getenv(name, "").strip() for name in MODEL_SETTINGS)
+    endpoint = endpoint.rstrip("/")
+    if not (key and model and endpoint):
+        raise ValueError("AI 已启用，但 AI_API_KEY、AI_MODEL 或 AI_BASE_URL 配置不完整")
     if not endpoint.startswith("https://") or "@" in endpoint:
         raise ValueError("AI_BASE_URL 必须是可信的 HTTPS API 地址")
-    data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
-    stocks = [(market, x) for market, field in (("A股","a_shares"),("港股","hk_shares")) for x in data.get(field, [])[:5]]
-    if len(stocks) != 10: raise ValueError(f"预期 A 股和港股各5只，共10只；实际只有 {len(stocks)} 只，拒绝发布不完整报告")
+    markets = tuple(markets)
+    if not markets or len(set(markets)) != len(markets) or any(m not in MARKET_FIELDS for m in markets):
+        raise ValueError("研究市场范围无效")
+    stocks = []
+    for market in markets:
+        selected = data.get(MARKET_FIELDS[market], [])[:5]
+        codes = {str(stock.get("代码") or "").strip() for stock in selected}
+        if len(selected) != 5 or len(codes) != 5 or "" in codes:
+            raise ValueError(f"{market}需要五只代码互异的入选股票")
+        stocks.extend((market, stock) for stock in selected)
+    cutoff = data["updated"][:10]
+    if evidence_snapshot is not None:
+        _validate_evidence_snapshot(evidence_snapshot, stocks, cutoff)
+    output_path = pathlib.Path(output_path)
+    if cache_dir is not None:
+        cache_dir = pathlib.Path(cache_dir).resolve()
+        if cache_dir.is_relative_to(DOCS.resolve()):
+            raise ValueError("AI原始回复缓存需保存在站点发布目录之外")
+        cache_dir.mkdir(parents=True, exist_ok=True)
     output = []
     snapshots = []
-    directory = stock_directory()
+    directory = stock_directory() if "港股" in markets and evidence_snapshot is None else {}
     for market, s in stocks:
-        finance = fetch_financial(market, s.get("代码", ""), s.get("名称", ""), data["updated"][:10],
-                                  directory=directory)
+        if evidence_snapshot is None:
+            finance = fetch_financial(market, s["代码"], s.get("名称", ""), cutoff, directory=directory)
+        else:
+            finance = evidence_snapshot[str(s["代码"])]["finance"]
         snapshots.append((market, s, finance))
         print(f"财务查询 {market} {s.get('代码', '')}：{finance['状态']}，"
               f"{len(finance.get('指标', {}))} 项，报告期 {finance.get('报告期', '—')}", flush=True)
-    for market in ("A股", "港股"):
+    for market in markets:
         summary, all_missing = finance_summary(market, [f for m, _, f in snapshots if m == market])
         # Fixed market names and counts only in Actions annotations.
         prefix = "::warning::" if all_missing and os.getenv("GITHUB_ACTIONS") == "true" else ""
@@ -775,9 +902,12 @@ def main():
         # An issuer's latest news is not necessarily the financial statement
         # corresponding to the finance snapshot's period.
         statement_period = finance.get("报告期") if finance.get("状态") in ("可用", "部分可用") else None
-        evidence = fetch_disclosures(market, code, data['updated'][:10],
-                                     report_period=statement_period)
-        read_filings(evidence["公告"])
+        if evidence_snapshot is None:
+            evidence = fetch_disclosures(market, code, cutoff, report_period=statement_period)
+            read_filings(evidence["公告"])
+        else:
+            evidence = deepcopy(evidence_snapshot[code]["disclosures"])
+            _read_frozen_filings(evidence["公告"])
         report_match = evidence.get("对应报告期财报")
         if report_match and report_match.get("链接"):
             for notice in evidence["公告"]:
@@ -830,7 +960,7 @@ def main():
             "所有内容为中文，四个章节均应完整且非套话。"
             "输入资料：" + json.dumps(inputs, ensure_ascii=False, separators=(",", ":"))
         )
-        content = request_deepseek(endpoint, key, model, prompt)
+        content = _request_with_checkpoint(endpoint, key, model, prompt, cache_dir)
         assessment = assess_model_research(content, brief, evidence["公告"])
         print(f"AI发布审查 {market} {code}：{assessment['状态']}，"
               f"保留分析 {assessment['可用字数']}/{assessment.get('原始字数', 0)} 字，"
@@ -843,13 +973,25 @@ def main():
             print("::notice::条件性研究可显示，但没有足够逐字原文主张：" +
                   market + " " + code, flush=True)
         output.append((market,s,content[:10000],finance))
-    if len(output) != 10: raise ValueError("AI 报告数量不足10只，保留已有报告")
+    if len(output) != len(stocks):
+        raise ValueError("AI 报告数量与本次研究范围不符")
     updated = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
-    (DOCS/"ai.html").write_text(
-        stamp_generated_report(render_report(data, output, updated,
-                               disclosures=disclosures, peer_data=peer_data)),
-        encoding="utf-8")
+    page = render_report(data, output, updated, disclosures=disclosures, peer_data=peer_data,
+                         markets=markets)
+    _atomic_write(output_path, stamp_generated_report(page, expected_count=len(stocks)))
     print("AI 报告生成完成，股票数：",len(output))
+
+
+def main():
+    if not all(os.getenv(name, "").strip() for name in MODEL_SETTINGS):
+        if os.getenv("AI_ENABLED", "").strip().lower() == "true":
+            raise ValueError("AI 已启用，但 AI_API_KEY、AI_MODEL 或 AI_BASE_URL 配置不完整")
+        print("AI 未配置：跳过 AI 报告，原有选股不受影响")
+        return
+    data = json.loads((DOCS / "data.json").read_text(encoding="utf-8"))
+    generate_report(data, DOCS / "ai.html")
+
+
 if __name__ == "__main__":
     main()
 
