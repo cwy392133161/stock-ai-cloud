@@ -19,10 +19,10 @@ import sys
 import time
 from html import escape as escape_html
 
-from market_freshness import validate_delayed_hk_times
+from market_freshness import validate_delayed_hk_times, validate_eastmoney_a_times
 from tencent_market import fetch_tencent_a
 from market_transport import EastmoneyBudget, ProviderCooldown
-from market_quality import MarketDataQualityError, validate_market_data
+from market_quality import MarketDataQualityError, numeric_column, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
 from peer_fundamentals import candidate_pool
 from datetime import datetime, timezone, timedelta
@@ -77,20 +77,6 @@ def _retry_waits():
         except ValueError:
             pass
     return RETRY_WAITS
-
-
-def _num(series):
-    """把 AKShare 可能返回的 '-'、空值等转成数字，失败为 NaN。"""
-    return pd.to_numeric(series, errors="coerce")
-
-
-def _col(d, name):
-    """取一列转数字；列不存在时返回全 NaN。
-    A 股和港股接口的字段并不完全一致（如港股没有换手率），缺失列按中性处理，
-    不能直接按列名取值，否则会 KeyError。"""
-    if name in d.columns:
-        return _num(d[name])
-    return pd.Series(float("nan"), index=d.index)
 
 
 def _page_delay():
@@ -176,7 +162,7 @@ def fetch_em_clist(host, fs, market, get=None):
                 "市盈率-动态", "量比", "5分钟涨跌", "最高", "最低", "今开", "昨收",
                 "总市值", "流通市值", "涨速", "市净率", "60日涨跌幅", "年初至今涨跌幅"):
         if col in df.columns:
-            df[col] = _num(df[col])
+            df[col] = numeric_column(df, col)
     print(f"  东财直连（{host or 'push2'}）：{len(df)} 行", flush=True)
     return df
 
@@ -195,6 +181,8 @@ def fetch_em_market(label, hosts, fs, market, get=None):
             df = fetch_em_clist(host, fs, market, get=page_get)
             if market == "HK":
                 df = validate_delayed_hk_times(df, min_amount=MIN_AMOUNT_HK, min_float_cap=MIN_FLOAT_CAP_HK)
+            elif market == "A":
+                df = validate_eastmoney_a_times(df)
             source = f"东财原始字段/{host or 'push2'}" + ("/AKShare传输" if get else "")
             df.attrs["quality"] = validate_market_data(df, label, source)
             df.attrs["quality"].update(df.attrs.get("freshness", {}))
@@ -223,6 +211,7 @@ def _fetch_a_em_market(label, hosts, fs):
         frame = _standardize(frame)
         source = "东财A股原始字段/" + ("AKShare单次新连接" if ak is not None else "requests")
         frame.attrs["quality"] = validate_market_data(frame, label, source)
+        frame.attrs["quality"].update(frame.attrs.get("freshness", {}))
         frame.attrs["quality"]["请求次数"] = budget.requests
         return frame
     except Exception as exc:
@@ -309,31 +298,24 @@ def _rank_pct(s):
     return r.fillna(50.0)
 
 
-def score_a(df):
-    """A 股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。"""
+def _score_market(df, min_cap, min_amount, daily_trend_fallback=False):
     d = df.copy()
-    d["最新价"] = _col(d, "最新价")
-    d["涨跌幅"] = _col(d, "涨跌幅")
-    d["60日涨跌幅"] = _col(d, "60日涨跌幅")
-    d["年初至今涨跌幅"] = _col(d, "年初至今涨跌幅")
-    d["换手率"] = _col(d, "换手率")
-    d["量比"] = _col(d, "量比")
-    d["市盈率-动态"] = _col(d, "市盈率-动态")
-    d["市净率"] = _col(d, "市净率")
-    d["流通市值"] = _col(d, "流通市值")
-    d["成交额"] = _col(d, "成交额")
-    d["振幅"] = _col(d, "振幅")
+    for col in ("最新价", "涨跌幅", "60日涨跌幅", "年初至今涨跌幅", "换手率", "量比",
+                "市盈率-动态", "市净率", "流通市值", "成交额", "振幅"):
+        d[col] = numeric_column(d, col)
 
     # 过滤：ST / 退市、停牌（无价）、市值与成交额过小；缺失数据不得跳过门槛
     if "名称" in d.columns:
         d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
     d = d[d["最新价"].notna() & (d["最新价"] > 0)]
     # 未知市值/成交额不能视为通过原有门槛；覆盖不足已由全市场质量检查拦截。
-    d = d[(d["流通市值"] >= MIN_FLOAT_CAP_A) &
-          (d["成交额"] >= MIN_AMOUNT_A)]
+    d = d[(d["流通市值"] >= min_cap) & (d["成交额"] >= min_amount)]
     d = d.dropna(subset=["涨跌幅"])
 
-    trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
+    if daily_trend_fallback and not d["60日涨跌幅"].notna().any():
+        trend = _rank_pct(d["涨跌幅"])
+    else:
+        trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
     active = 0.5 * _rank_pct(d["换手率"]) + 0.5 * _rank_pct(d["量比"])
     pe = d["市盈率-动态"].where((d["市盈率-动态"] > 0) & (d["市盈率-动态"] < 100))
     pb = d["市净率"].where((d["市净率"] > 0) & (d["市净率"] < 10))
@@ -344,46 +326,14 @@ def score_a(df):
     d["活跃分"] = active.round(1)
     d["估值分"] = value.round(1)
     return d.sort_values("评分", ascending=False)
+
+
+def score_a(df):
+    return _score_market(df, MIN_FLOAT_CAP_A, MIN_AMOUNT_A)
 
 
 def score_hk(df):
-    """港股打分：趋势 40 / 活跃度 25 / 估值 20 / 规模 15。
-    直连接口的港股数据包含 60 日涨跌幅、换手率、市盈率等全字段，与 A 股用
-    同一套打分；所有来源必须先通过字段覆盖检查，整列缺失的来源不得入榜。"""
-    d = df.copy()
-    d["最新价"] = _col(d, "最新价")
-    d["涨跌幅"] = _col(d, "涨跌幅")
-    d["60日涨跌幅"] = _col(d, "60日涨跌幅")
-    d["年初至今涨跌幅"] = _col(d, "年初至今涨跌幅")
-    d["换手率"] = _col(d, "换手率")
-    d["量比"] = _col(d, "量比")
-    d["市盈率-动态"] = _col(d, "市盈率-动态")
-    d["市净率"] = _col(d, "市净率")
-    d["流通市值"] = _col(d, "流通市值")
-    d["成交额"] = _col(d, "成交额")
-    d["振幅"] = _col(d, "振幅")
-
-    if "名称" in d.columns:
-        d = d[~d["名称"].astype(str).str.contains("ST|退", na=False)]
-    d = d[d["最新价"].notna() & (d["最新价"] > 0)]
-    d = d[(d["流通市值"] >= MIN_FLOAT_CAP_HK) &
-          (d["成交额"] >= MIN_AMOUNT_HK)]
-    d = d.dropna(subset=["涨跌幅"])
-
-    if d["60日涨跌幅"].notna().any():
-        trend = 0.5 * _rank_pct(d["60日涨跌幅"]) + 0.3 * _rank_pct(d["年初至今涨跌幅"]) + 0.2 * _rank_pct(d["涨跌幅"])
-    else:
-        trend = _rank_pct(d["涨跌幅"])
-    active = 0.5 * _rank_pct(d["换手率"]) + 0.5 * _rank_pct(d["量比"])
-    pe = d["市盈率-动态"].where((d["市盈率-动态"] > 0) & (d["市盈率-动态"] < 100))
-    pb = d["市净率"].where((d["市净率"] > 0) & (d["市净率"] < 10))
-    value = 0.6 * (100 - _rank_pct(pe)) + 0.4 * (100 - _rank_pct(pb))
-    size = _rank_pct(d["流通市值"])
-    d["评分"] = (0.40 * trend + 0.25 * active + 0.20 * value + 0.15 * size).round(1)
-    d["趋势分"] = trend.round(1)
-    d["活跃分"] = active.round(1)
-    d["估值分"] = value.round(1)
-    return d.sort_values("评分", ascending=False)
+    return _score_market(df, MIN_FLOAT_CAP_HK, MIN_AMOUNT_HK, daily_trend_fallback=True)
 
 
 def fmt_money(v, unit):
@@ -485,9 +435,9 @@ th{background:#fafafa;font-size:13px;color:#555}
 </head>
 <body><div class="wrap">
 <h1>📈 A 股 + 港股 AI 选股榜</h1>
-<p class="ai-nav"><a href="./ai.html">🧠 查看 DeepSeek AI 中文研究报告</a> <span>（AI 报告可能不是最新交易日，请核对报告时间）</span></p>
+{ai_nav}
 <p class="sub">更新时间：<b>{updated}</b>（北京时间）<br>
-规则化多因子评分：趋势 40% / 活跃度 25% / 估值 20% / 规模 15%。每天工作日收盘后自动更新。数据来源：AKShare 免费接口（东方财富 / 新浪）。</p>
+规则化多因子评分：趋势 40% / 活跃度 25% / 估值 20% / 规模 15%。各市场本次采用的行情来源见下方质量核验。</p>
 """
 
 HTML_FOOT = """
@@ -499,14 +449,14 @@ HTML_FOOT = """
 
 
 def table_html(title, rows, market):
-    lines = [f"<h2>{title}</h2>", "<table><tr><th>#</th><th>股票</th><th>最新价</th><th>涨跌幅</th><th>评分</th><th>入选原因</th><th>风险提示</th></tr>"]
+    lines = [f"<h2>{escape_html(title)}</h2>", "<table><tr><th>#</th><th>股票</th><th>最新价</th><th>涨跌幅</th><th>评分</th><th>入选原因</th><th>风险提示</th></tr>"]
     for i, r in enumerate(rows, 1):
         chg = f"{r['涨跌幅']:+.2f}%"
         cls = "up" if r["涨跌幅"] >= 0 else "down"
         lines.append(
-            f"<tr><td>{i}</td><td><b>{r['名称']}</b><br><span style='color:#888;font-size:12px'>{r['代码']}</span></td>"
+            f"<tr><td>{i}</td><td><b>{escape_html(r['名称'])}</b><br><span style='color:#888;font-size:12px'>{escape_html(r['代码'])}</span></td>"
             f"<td>{r['最新价']}</td><td class='{cls}'>{chg}</td>"
-            f"<td class='score'>{r['评分']}</td><td>{r['入选原因']}</td><td>{r['风险提示']}</td></tr>"
+            f"<td class='score'>{r['评分']}</td><td>{escape_html(r['入选原因'])}</td><td>{escape_html(r['风险提示'])}</td></tr>"
         )
     lines.append("</table>")
     return "\n".join(lines)
@@ -546,14 +496,13 @@ def main():
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
     os.makedirs(out_dir, exist_ok=True)
-    # AI 报告页由 ai_report.py 在选股之后生成；榜单页只在 ai.html 已存在时才放链接，
-    # 否则显示待开启提示（首次开启 AI 的那次运行，链接从下一次运行开始出现）。
+    # publish_guard updates this navigation after the optional report step.
     if os.path.exists(os.path.join(out_dir, "ai.html")):
-        ai_link = ''
+        ai_nav = ('<p class="ai-nav"><a href="./ai.html">🧠 查看 DeepSeek AI 中文研究报告</a> '
+                  '<span>（请核对报告时间）</span></p>')
     else:
-        ai_link = '<p class="sub">📝 AI 深度分析待配置 DeepSeek 密钥后开启。</p>'
-    html = HTML_HEAD.replace("{updated}", updated)
-    html += ai_link
+        ai_nav = '<p class="ai-nav">AI 研究报告尚未生成。</p>'
+    html = HTML_HEAD.replace("{updated}", updated).replace("{ai_nav}", ai_nav)
     for m in ("A股", "港股"):
         q = quality[m]
         cov = q["字段有效覆盖率%"]
@@ -569,12 +518,13 @@ def main():
     html += table_html("🇨🇳 A 股 Top 20", top_a, "A")
     html += table_html("🇭🇰 港股 Top 20", top_hk, "HK")
     html += HTML_FOOT
+    snapshot = json.dumps({"updated": updated, "quality": quality, "a_shares": top_a,
+                           "hk_shares": top_hk, "a_peer_pool": a_peer_pool},
+                          ensure_ascii=False, indent=2, allow_nan=False)
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
-        json.dump({"updated": updated, "quality": quality, "a_shares": top_a,
-                   "hk_shares": top_hk, "a_peer_pool": a_peer_pool},
-                  f, ensure_ascii=False, indent=2)
+        f.write(snapshot)
     print(f"已生成 docs/index.html（更新时间 {updated}）", flush=True)
     return 0
 

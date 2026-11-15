@@ -89,7 +89,7 @@ def market_freshness(current, market_state, screening_outcome, previous):
 
 
 def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_state=None, ai_skipped=False,
-                       review_required=False, previous_status=None, screening_outcome=None):
+                       review_required=False, previous_status=None, screening_outcome=None, report_only=False):
     """Return status with exact full-minute snapshot identity."""
     current = str(snapshot.get("updated", "")).strip()
     # Status decoration is not source evidence for the report's original date.
@@ -137,7 +137,7 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
     elif market_state == "pre_close":
         state, description = ("market-awaiting-close", "尚未到北京时间17:00收盘发布窗口：保留旧快照，"
                               "未重新选股，也未自动触发AI研究；本次未检查行情源是否可用")
-    elif market_state == "failed":
+    elif market_state == "failed" and not (report_only and job_outcome in ("success", "failure")):
         state, description = ("market-unavailable", "行情更新失败后尚无更新的成功快照："
                               "保留旧行情；研究报告是否更新须另看报告时点与AI生成记录")
     elif ai_skipped and job_outcome == "skipped":
@@ -182,13 +182,13 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
 
 
 def update_index(index_html, status, has_report):
-    label = status["description"]
+    label = escape(status["description"])
     text = (
-        '<p class="ai-nav" data-report-state="' + status["state"] + '">'
+        '<p class="ai-nav" data-report-state="' + escape(status["state"]) + '">'
         '<a href="./ai.html">🧠 DeepSeek AI 股票研究</a>'
         ' <strong>' + label + '</strong>'
-        ' <span>选股快照：' + status["snapshot"] +
-        '；报告快照：' + (status["report_snapshot"] or "未核实") + '</span></p>'
+        ' <span>选股快照：' + escape(status["snapshot"]) +
+        '；报告快照：' + escape(status["report_snapshot"] or "未核实") + '</span></p>'
     ) if has_report else (
         '<p class="ai-nav" data-report-state="missing">⚠️ AI研究页尚不存在，'
         '当前只有规则选股榜。</p>'
@@ -220,15 +220,15 @@ def update_report_banner(report_html, status):
     """Warn even when readers open the old AI URL without visiting home."""
     if not report_html:
         return report_html
-    state = status["state"]
+    state = escape(status["state"])
     report_html = BANNER.sub("", report_html)
-    message = status["description"]
+    message = escape(status["description"])
     banner = (
         '<p class="research-publication-alert" data-research-state="' +
         state + '" style="border:1px solid #cbd5e1;padding:12px;border-radius:8px">'
         '<b>研究发布状态：</b>' + message + '。'
-        '榜单时点：' + status["snapshot"] + '；本页原研究时点：' +
-        (status["report_snapshot"] or "未核实") + '。</p>'
+        '榜单时点：' + escape(status["snapshot"]) + '；本页原研究时点：' +
+        escape(status["report_snapshot"] or "未核实") + '。</p>'
     )
     # Build-generated pages use a predictable H1; no generic insertion into
     # arbitrary untrusted HTML and no duplicate banners on repeated runs.
@@ -275,7 +275,8 @@ def main():
                                ai_skipped=os.getenv("SKIP_AI", "").lower() == "true",
                                review_required=os.getenv("RESEARCH_REVIEW_REQUIRED", "").lower().strip() == "true",
                                previous_status=previous,
-                               screening_outcome=screening if not report_only else None)}
+                               screening_outcome=screening if not report_only else None,
+                               report_only=report_only)}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     state["schedule_state"] = schedule_state
     if scheduled:

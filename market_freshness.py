@@ -1,4 +1,4 @@
-"""Time gate for the explicitly delayed Eastmoney HK endpoint."""
+"""Quote-time checks for the A-share and Hong Kong market feeds."""
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from market_quality import MarketDataQualityError
@@ -6,15 +6,54 @@ from market_quality import MarketDataQualityError
 CST = timezone(timedelta(hours=8))
 
 
-def validate_delayed_hk_times(frame, now=None, min_amount=1e7, min_float_cap=20e8):
+def _observed_at(now):
     now = now or datetime.now(CST)
-    if now.tzinfo is None:
+    if now.utcoffset() is None:
         raise ValueError("行情检查时间必须包含时区")
-    now = now.astimezone(CST)
+    return now.astimezone(CST)
+
+
+def _eastmoney_timestamps(frame, source):
     if "f124" not in frame:
-        raise MarketDataQualityError("港股延迟源缺少原始报价时间 f124")
-    stamps = pd.to_datetime(pd.to_numeric(frame["f124"], errors="coerce"),
-                            unit="s", errors="coerce", utc=True).dt.tz_convert(CST)
+        raise MarketDataQualityError(f"{source}缺少原始报价时间 f124")
+    return pd.to_datetime(pd.to_numeric(frame["f124"], errors="coerce"),
+                          unit="s", errors="coerce", utc=True).dt.tz_convert(CST)
+
+
+def a_quote_cutoff(observed):
+    """Earliest usable quote time for an A-share observation in Beijing time."""
+    close = observed.replace(hour=15, minute=0, second=0, microsecond=0)
+    lunch = observed.replace(hour=11, minute=30, second=0, microsecond=0)
+    reopen = observed.replace(hour=13, minute=0, second=0, microsecond=0)
+    if observed >= close:
+        return close
+    if lunch <= observed < reopen:
+        return lunch - timedelta(minutes=2)
+    return observed - timedelta(minutes=10)
+
+
+def validate_eastmoney_a_times(frame, now=None):
+    now = _observed_at(now)
+    stamps = _eastmoney_timestamps(frame, "东财A股")
+    fresh = ((stamps.dt.date == now.date()) & (stamps >= a_quote_cutoff(now))
+             & (stamps <= now + timedelta(seconds=60)))
+    active = pd.to_numeric(frame["成交额"], errors="coerce") > 0
+    if not active.any() or fresh.loc[active].mean() < .95:
+        raise MarketDataQualityError(
+            f"东财A股有成交证券的新鲜报价不足95%：{int((active & fresh).sum())}/{int(active.sum())}")
+    result = frame.copy()
+    result.loc[~fresh, "最新价"] = float("nan")
+    result.attrs["freshness"] = {
+        "报价日期": now.date().isoformat(), "时效检查时间": now.isoformat(),
+        "有成交证券数": int(active.sum()), "新鲜有成交证券数": int((active & fresh).sum()),
+        "行情时效": "东财原始报价时间已核对；盘后入榜证券须含当日15:00或之后的报价",
+    }
+    return result
+
+
+def validate_delayed_hk_times(frame, now=None, min_amount=1e7, min_float_cap=20e8):
+    now = _observed_at(now)
+    stamps = _eastmoney_timestamps(frame, "港股延迟源")
     amount = pd.to_numeric(frame["成交额"], errors="coerce")
     price = pd.to_numeric(frame["最新价"], errors="coerce")
     cap = pd.to_numeric(frame["流通市值"], errors="coerce")

@@ -65,6 +65,20 @@ class DataQualityTests(unittest.TestCase):
         with self.assertRaises(MarketDataQualityError):
             validate_market_data(bad, "A股", "infinite")
 
+    def test_isolated_infinities_cannot_enter_rankings_or_snapshot(self):
+        frame = quotes()
+        for i, col in enumerate(("最新价", "涨跌幅", "流通市值", "成交额")):
+            frame.loc[i, col] = float("inf")
+        frame.loc[4, "换手率"] = float("-inf")
+        for market, label, score in (("A", "A股", picker.score_a), ("HK", "港股", picker.score_hk)):
+            with self.subTest(market=market):
+                validate_market_data(frame, label, "fixture")
+                ranked = score(frame)
+                self.assertTrue({0, 1, 2, 3}.isdisjoint(ranked.index))
+                row = picker.pick_rows(ranked.loc[[4]], market, 1)[0]
+                self.assertIsNone(row["换手率"])
+                json.dumps(row, allow_nan=False)
+
     def test_hk_rmb_and_hkd_counters_keep_distinct_codes(self):
         self.assertEqual(picker._norm_hk_code("09988"), "09988")
         self.assertEqual(picker._norm_hk_code("89988"), "89988")

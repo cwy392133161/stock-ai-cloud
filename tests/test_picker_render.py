@@ -24,5 +24,17 @@ class PickerRenderTests(unittest.TestCase):
             self.assertIn('腾讯测试源',html)
             self.assertIn('最多30交易分钟延迟',html)
             self.assertIn('行情时效',data['quality']['港股'])
+            self.assertNotIn('href="./ai.html"', html)
+            self.assertIn('<p class="ai-nav">', html)
+
+    def test_provider_text_is_escaped_in_ranking(self):
+        row = {"名称": "<img src=x onerror=alert(1)>", "代码": "A&B", "最新价": 4.0,
+               "涨跌幅": 1.0, "评分": 75.0, "入选原因": "A < B", "风险提示": "B > A"}
+        html = picker.table_html("A股", [row], "A")
+        self.assertIn("&lt;img", html)
+        self.assertNotIn("<img", html)
+        self.assertIn("A&amp;B", html)
+        self.assertIn("A &lt; B", html)
+        self.assertIn("B &gt; A", html)
 
 if __name__=='__main__': unittest.main()

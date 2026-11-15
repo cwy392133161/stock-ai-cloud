@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 import pandas as pd
 import picker
-from market_freshness import validate_delayed_hk_times
+from market_freshness import validate_delayed_hk_times, validate_eastmoney_a_times
 from market_quality import MarketDataQualityError
 from test_market_quality import quotes
 
@@ -15,6 +15,48 @@ def frame(stamp=None):
     stamp=stamp or NOW.replace(hour=16,minute=5)
     df['f124']=stamp.timestamp()
     return df
+
+
+class AShareFreshnessTests(unittest.TestCase):
+    def test_missing_stale_or_future_quotes_cannot_be_used_after_close(self):
+        df = quotes()
+        with self.assertRaisesRegex(MarketDataQualityError, "f124"):
+            validate_eastmoney_a_times(df.drop(columns=["f124"]), NOW)
+        for stamp in (NOW - timedelta(days=1), NOW.replace(hour=14, minute=59),
+                      NOW + timedelta(seconds=61)):
+            with self.subTest(stamp=stamp), self.assertRaisesRegex(MarketDataQualityError, "95%"):
+                validate_eastmoney_a_times(df.assign(f124=stamp.timestamp()), NOW)
+
+    def test_market_passes_with_95_percent_fresh_but_only_fresh_securities_rank(self):
+        df = quotes()
+        df["f124"] = NOW.replace(hour=15, minute=0).timestamp()
+        df.loc[:174, "f124"] = (NOW - timedelta(days=1)).timestamp()
+        result = validate_eastmoney_a_times(df, NOW.astimezone(timezone.utc))
+        self.assertEqual(result.attrs["freshness"]["新鲜有成交证券数"], 3325)
+        self.assertEqual(result.attrs["freshness"]["报价日期"], "2026-11-10")
+        self.assertTrue(result.loc[:174, "最新价"].isna().all())
+        self.assertEqual(len(picker.score_a(result)), 3325)
+        df.loc[175, "f124"] = float("nan")
+        with self.assertRaisesRegex(MarketDataQualityError, "95%"):
+            validate_eastmoney_a_times(df, NOW)
+
+    def test_picker_moves_to_independent_provider_when_eastmoney_is_stale(self):
+        stale = quotes().assign(f124=0)
+        with patch.object(picker, "fetch_em_clist", return_value=stale), \
+             patch.object(picker, "fetch_tencent_a", return_value=quotes()) as tencent:
+            result = picker.fetch_a_market("A股", ["82"], "")
+        tencent.assert_called_once()
+        self.assertIn("腾讯", result.attrs["quality"]["行情来源"])
+
+    def test_picker_keeps_eastmoney_timestamp_diagnostics(self):
+        df = quotes().assign(f124=NOW.replace(hour=15, minute=0).timestamp())
+        with patch("market_freshness.datetime") as clock, \
+             patch.object(picker, "fetch_em_clist", return_value=df):
+            clock.now.return_value = NOW
+            result = picker.fetch_a_market("A股", ["82"], "")
+        self.assertEqual(result.attrs["quality"]["新鲜有成交证券数"], 3500)
+        self.assertIn("15:00", result.attrs["quality"]["行情时效"])
+
 
 class HKFreshnessTests(unittest.TestCase):
     def test_same_day_close_quotes_pass(self):
