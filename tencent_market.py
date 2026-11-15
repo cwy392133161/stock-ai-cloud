@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import requests
+from market_freshness import a_quote_cutoff
 from market_quality import validate_market_data
 
 CST = timezone(timedelta(hours=8))
@@ -71,17 +72,8 @@ def get_rank_rows(get, pause=time.sleep):
 
 def quote_is_fresh(stamp, observed):
     observed = observed.astimezone(CST)
-    if stamp.date() != observed.date() or stamp > observed + timedelta(seconds=60):
-        return False
-    # An opening quote must not masquerade as the day's closing observation.
-    close = observed.replace(hour=15, minute=0, second=0, microsecond=0)
-    lunch = observed.replace(hour=11, minute=30, second=0, microsecond=0)
-    reopen = observed.replace(hour=13, minute=0, second=0, microsecond=0)
-    if observed >= close:
-        return stamp >= close
-    if lunch <= observed < reopen:
-        return stamp >= lunch - timedelta(minutes=2)
-    return stamp >= observed - timedelta(minutes=10)
+    return (stamp.date() == observed.date()
+            and a_quote_cutoff(observed) <= stamp <= observed + timedelta(seconds=60))
 
 
 def parse_quotes(text, expected, observed):

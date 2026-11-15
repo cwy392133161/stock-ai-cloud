@@ -48,41 +48,51 @@ def cn_rows(code, start, end):
     form = dict(pageNum=1, pageSize=CN_PAGE_SIZE, column=column, tabName="fulltext", plate="",
                 stock=f"{code},{org}", searchkey="", secid="", category="", trade="",
                 seDate=f"{start}~{end}", sortName="time", sortType="desc", isHLtitle="true")
-    seen_urls = set()
+    seen = set()
+    expected = None
     page = 1
     while True:
         form["pageNum"] = page
         data = read_json(CN + "/new/hisAnnouncement/query", form=form,
                          referer=CN + "/new/commonUrl/pageOfSearch")
-        rows = data.get("announcements")
-        if rows is None:
-            if data.get("totalAnnouncement") == 0:
-                return
-            raise ValueError("巨潮资讯索引响应缺少公告列表，不能推断无公告")
-        if not isinstance(rows, list):
-            raise ValueError("巨潮资讯索引格式异常")
-        new_entries = 0
-        for row in rows:
-            if row.get("secCode") != code:
-                continue
-            path = row.get("adjunctUrl")
-            if path in seen_urls:
-                continue
-            seen_urls.add(path)
-            new_entries += 1
-            day = datetime.fromtimestamp(int(row["announcementTime"]) / 1000, CHINA).date()
-            yield day, row["announcementTitle"], path
         total = data.get("totalAnnouncement")
-        try:
-            total = int(total) if total is not None else None
-        except (ValueError, TypeError):
-            total = None
-        if (total is not None and page * CN_PAGE_SIZE >= total) or len(rows) < CN_PAGE_SIZE:
+        if total is not None:
+            total = int(total)
+            if total < 0:
+                raise ValueError("巨潮资讯公告总数无效")
+            expected = max(total, expected or 0)
+        rows = data.get("announcements")
+        if rows is None and expected == 0:
             return
-        if not new_entries:
-            # Some providers ignore pageNum and repeat page 1. Stop rather
-            # than issuing an unbounded loop and treating it as complete.
+        if not isinstance(rows, list):
+            raise ValueError("巨潮资讯索引响应缺少公告列表，不能推断无公告")
+        previous_count = len(seen)
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("巨潮资讯公告条目格式异常")
+            path = row.get("adjunctUrl")
+            # Compare the provider's count to index entries, not the number
+            # of eligible PDFs. Multiple announcements can share a PDF.
+            identity = row.get("announcementId") or (
+                row.get("secCode"), path, row.get("announcementTime"), row.get("announcementTitle")
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if row.get("secCode") == code:
+                day = datetime.fromtimestamp(int(row["announcementTime"]) / 1000, CHINA).date()
+                yield day, row["announcementTitle"], path
+        more = data.get("hasMore")
+        if expected is not None and len(seen) == expected and more is not True:
+            return
+        if expected is not None and len(seen) > expected:
+            raise ValueError("巨潮资讯公告数量与总数不一致，索引仍未查全")
+        if rows and len(seen) == previous_count:
             raise ValueError("巨潮资讯分页未推进，索引仍未查全")
+        if expected is None and (more is False or (len(rows) < CN_PAGE_SIZE and more is not True)):
+            return
+        if not rows:
+            raise ValueError("巨潮资讯分页提前结束，索引仍未查全")
         page += 1
 
 
@@ -175,7 +185,8 @@ def fetch_disclosures(market, code, as_of, report_period=None):
         result["状态"] = ("已取得公告索引" if recent else
                          "索引条目未核实" if skipped else "查询期内未检索到匹配公告")
     except (URLError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
-        result["状态"] = f"公告查询未核实（{type(exc).__name__}）"
+        status = "公告索引未查全，已保留部分公告" if recent else "公告查询未核实"
+        result["状态"] = f"{status}（{type(exc).__name__}）"
 
     result["近期公告数量"] = len(recent)
     ranked = sorted(recent.values(),

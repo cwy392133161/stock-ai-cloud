@@ -41,14 +41,23 @@ class MarketStatusHistoryTests(unittest.TestCase):
         self.assertEqual(result["market_state"], "failed")
         self.assertEqual(result["last_screening_outcome"], "failure")
 
-    def test_report_only_success_does_not_claim_ai_was_not_generated(self):
-        result = guard.research_freshness(
-            {"updated": OLD}, REPORT, True, "success",
-            previous_status={"snapshot": OLD, "market_state": "failed"})
-        self.assertEqual(result["market_state"], "failed")
-        self.assertEqual(result["ai_step"], "success")
-        self.assertNotIn("未对其重新生成", result["description"])
-        self.assertIn("研究报告是否更新须另看", result["description"])
+    def test_report_only_records_research_result_during_an_unresolved_outage(self):
+        counts = ('<meta name="research-approved-count" content="10">'
+                  '<meta name="research-limited-count" content="0">'
+                  '<meta name="research-total-count" content="10">')
+        for outcome, state in (("success", "current"), ("failure", "failed")):
+            with self.subTest(outcome=outcome), self.fixture() as root:
+                (root / "ai.html").write_text(REPORT + counts)
+                (root / "ai-status.json").write_text(json.dumps({"snapshot": OLD, "market_state": "failed"}))
+                self.run_main(root, {"REPORT_ONLY": "true", "AI_ENABLED": "true", "AI_JOB_STATUS": outcome})
+                result = json.loads((root / "ai-status.json").read_text())
+                self.assertEqual(result["market_state"], "failed")
+                self.assertEqual(result["ai_step"], outcome)
+                self.assertEqual(result["state"], state)
+                for name, marker in (("index.html", "data-report-state"), ("ai.html", "data-research-state")):
+                    page = (root / name).read_text()
+                    self.assertIn('data-market-state="failed"', page)
+                    self.assertIn(f'{marker}="{state}"', page)
 
     def test_only_successful_screening_with_newer_snapshot_clears(self):
         for outcome, snapshot in (("skipped", NEW), ("failure", NEW),

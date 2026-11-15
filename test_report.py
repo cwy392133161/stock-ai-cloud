@@ -11,6 +11,16 @@ import ai_report
 
 
 class ReportTests(unittest.TestCase):
+    def test_enabled_research_rejects_incomplete_configuration(self):
+        config = {"AI_API_KEY": "test", "AI_MODEL": "test", "AI_BASE_URL": "https://example.invalid"}
+        for missing in config:
+            with self.subTest(missing=missing), patch.dict(
+                os.environ, {**config, missing: " ", "AI_ENABLED": "true"}, clear=True
+            ), self.assertRaisesRegex(ValueError, "配置不完整"):
+                ai_report.main()
+        with patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()):
+            self.assertIsNone(ai_report.main())
+
     def test_values_keep_precision_and_metadata(self):
         snapshot = {
             "指标": {"归母净利润": "-1234567890123456789.0100 CNY（累计）",

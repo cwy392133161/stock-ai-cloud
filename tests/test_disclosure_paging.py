@@ -50,6 +50,40 @@ class DisclosurePagingTests(unittest.TestCase):
                                     date(2026, 11, 6)))
         self.assertEqual(api.call_count, 2)
 
+    @patch("disclosures.directory", return_value={"000690": "test-org"})
+    @patch("disclosures.read_json")
+    def test_mainland_short_pages_follow_actual_count(self, api, _):
+        api.side_effect = [
+            {"totalAnnouncement": 35, "announcements": self.make_cn(0, 5)},
+            {"totalAnnouncement": 35, "announcements": self.make_cn(5, 30)},
+        ]
+        result = disclosures.fetch_disclosures("A股", "000690", "2026-11-06")
+        self.assertEqual(result["近期公告数量"], 35)
+        self.assertEqual(result["状态"], "已取得公告索引")
+        self.assertEqual(api.call_count, 2)
+
+    @patch("disclosures.directory", return_value={"000690": "test-org"})
+    @patch("disclosures.read_json")
+    def test_mainland_incomplete_final_page_preserves_partial_results(self, api, _):
+        first = {"totalAnnouncement": 60, "announcements": self.make_cn(0, 30)}
+        for final in (first, {"totalAnnouncement": 60, "announcements": []}):
+            with self.subTest(final_rows=len(final["announcements"])):
+                api.side_effect = [first, final]
+                result = disclosures.fetch_disclosures("A股", "000690", "2026-11-06")
+                self.assertEqual(result["近期公告数量"], 30)
+                self.assertIn("未查全", result["状态"])
+                self.assertTrue(result["公告"])
+
+    @patch("disclosures.directory", return_value={"000690": "test-org"})
+    @patch("disclosures.read_json")
+    def test_mainland_shared_document_is_two_announcements_one_pdf(self, api, _):
+        rows = [dict(self.make_cn(0, 1)[0], announcementId=str(i)) for i in (1, 2)]
+        api.return_value = {"totalAnnouncement": 2, "announcements": rows}
+        result = disclosures.fetch_disclosures("A股", "000690", "2026-11-06")
+        self.assertEqual(result["近期公告数量"], 1)
+        self.assertEqual(result["状态"], "已取得公告索引")
+        self.assertEqual(api.call_count, 1)
+
     @patch("disclosures.directory", return_value={"00585": "test-stock"})
     @patch("disclosures.read_json")
     def test_hk_result_limit_does_not_misrepresent_complete_index(self, api, _):

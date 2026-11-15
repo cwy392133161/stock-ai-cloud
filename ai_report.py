@@ -743,6 +743,8 @@ def main():
     model = os.getenv("AI_MODEL", "").strip()
     endpoint = os.getenv("AI_BASE_URL", "").strip().rstrip("/")
     if not (key and model and endpoint):
+        if os.getenv("AI_ENABLED", "").strip().lower() == "true":
+            raise ValueError("AI 已启用，但 AI_API_KEY、AI_MODEL 或 AI_BASE_URL 配置不完整")
         print("AI 未配置：跳过 AI 报告，原有选股不受影响")
         return
     if not endpoint.startswith("https://") or "@" in endpoint:

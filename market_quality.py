@@ -3,8 +3,6 @@
 No score weight or screening threshold is changed here. A source without
 the necessary fields must not publish a misleading ranked list.
 """
-import math
-
 import pandas as pd
 
 
@@ -34,11 +32,12 @@ MIN_COVERAGE_OVERRIDES = {"港股": {"成交额": 0.75}}
 MIN_UNIVERSE = {"A股": 3000, "港股": 1200}
 
 
-def _numeric(frame, column):
+def numeric_column(frame, column):
+    """Use the same finite values for coverage checks and ranking."""
     if column not in frame:
         return pd.Series(float("nan"), index=frame.index)
     values = pd.to_numeric(frame[column], errors="coerce")
-    return values.where(values.map(lambda v: bool(pd.notna(v) and math.isfinite(float(v)))))
+    return values.replace([float("inf"), -float("inf")], float("nan"))
 
 
 def validate_market_data(frame, market, source):
@@ -59,8 +58,8 @@ def validate_market_data(frame, market, source):
         raise MarketDataQualityError(
             f"{market}/{source} 证券代码缺失或重复；重复行 {len(collisions)}，样例：{sample}"
         )
-    price = _numeric(frame, "最新价")
-    change = _numeric(frame, "涨跌幅")
+    price = numeric_column(frame, "最新价")
+    change = numeric_column(frame, "涨跌幅")
     tradable = (price > 0) & change.notna()
     valid = frame.loc[tradable]
     if len(valid) < MIN_UNIVERSE[market]:
@@ -71,7 +70,7 @@ def validate_market_data(frame, market, source):
     failed = []
     for field, default_floor in MIN_COVERAGE.items():
         floor = MIN_COVERAGE_OVERRIDES.get(market, {}).get(field, default_floor)
-        values = _numeric(valid, field)
+        values = numeric_column(valid, field)
         if field in ("成交额", "流通市值", "量比"):
             present = values > 0
         elif field == "换手率":

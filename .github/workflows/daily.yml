@@ -76,6 +76,10 @@ jobs:
         continue-on-error: true
         run: python picker.py
 
+      - name: 选股失败时恢复已发布的榜单与快照
+        if: ${{ steps.screening.outcome == 'failure' }}
+        run: git restore -- docs/index.html docs/data.json
+
       - name: 安装公告 PDF 文本读取工具
         continue-on-error: true
         if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
@@ -84,17 +88,22 @@ jobs:
       - name: 生成可选 AI 深度分析
         id: deep_research
         if: ${{ !inputs.skip_ai && vars.AI_ENABLED == 'true' && (inputs.report_only || steps.screening.outcome == 'success') }}
-        continue-on-error: ${{ !inputs.report_only }}
+        continue-on-error: true
         env:
           AI_ENABLED: ${{ vars.AI_ENABLED }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_BASE_URL: ${{ vars.AI_BASE_URL }}
           AI_MODEL: ${{ vars.AI_MODEL }}
+        run: python ai_report.py
+
+      - name: AI 生成失败时恢复已发布的研究页
+        if: ${{ steps.deep_research.outcome == 'failure' }}
         run: |
-          if [ "${{ inputs.report_only }}" = "true" ]; then
-            test -n "$AI_API_KEY" && test -n "$AI_MODEL" && test -n "$AI_BASE_URL" || { echo "AI 配置不完整"; exit 1; }
+          if git ls-files --error-unmatch docs/ai.html >/dev/null 2>&1; then
+            git restore -- docs/ai.html
+          else
+            rm -f -- docs/ai.html
           fi
-          python ai_report.py
 
       - name: 标记AI报告与本期行情快照是否同步
         env:
@@ -118,6 +127,12 @@ jobs:
           if [ -f docs/ai.html ]; then git add docs/ai.html; fi
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
+
+      - name: 标记手动报告生成失败
+        if: ${{ inputs.report_only && steps.deep_research.outcome != 'success' }}
+        run: |
+          echo "::error::本次未生成新的 AI 研究报告，已记录本次失败状态。"
+          exit 1
 
       - name: 标记未完成的定时更新或行情故障
         if: ${{ !inputs.report_only }}
