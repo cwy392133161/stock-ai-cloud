@@ -8,6 +8,7 @@ from publish_guard import research_freshness, update_index
 from research_brief import build_research_brief
 from research_quality import evidence_quality
 from peer_valuation import valuation_context
+from tests.a_share_fixtures import ARTICLES, ROWS
 
 
 def source():
@@ -222,21 +223,22 @@ class EvidenceGateTests(unittest.TestCase):
         report = (
             '<small>行情快照：2026-11-06 23:25</small>'
             '<meta name="research-approved-count" content="0">'
-            '<meta name="research-limited-count" content="7">'
-            '<meta name="research-total-count" content="10">'
+            '<meta name="research-limited-count" content="4">'
+            '<meta name="research-total-count" content="5">' + ARTICLES
         )
         status = research_freshness(
-            {"updated": "2026-11-06 23:25"}, report, True, "success")
+            {"updated": "2026-11-06 23:25", "a_shares": ROWS}, report, True, "success")
         self.assertEqual(status["state"], "limited")
-        self.assertEqual(status["research_limited"], 7)
-        self.assertIn("7/10", status["description"])
+        self.assertEqual(status["research_limited"], 4)
+        self.assertIn("4/5", status["description"])
 
     def test_publication_distinguishes_stale_factual_and_partial(self):
         index = '<h1>榜单</h1><p class="ai-nav">旧AI链接</p>'
         report = ('<small>行情快照：2026-11-06 23:25</small>'
                   '<meta name="research-approved-count" content="3">'
-                  '<meta name="research-total-count" content="10">')
-        snapshot = {"updated": "2026-11-06 23:25"}
+                  '<meta name="research-limited-count" content="0">'
+                  '<meta name="research-total-count" content="5">' + ARTICLES)
+        snapshot = {"updated": "2026-11-06 23:25", "a_shares": ROWS}
         partial = research_freshness(snapshot, report, True, "success")
         self.assertEqual(partial["state"], "partial")
         first = update_index(index, partial, True)

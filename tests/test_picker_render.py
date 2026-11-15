@@ -11,20 +11,26 @@ from test_market_quality import quotes
 
 
 class PickerRenderTests(unittest.TestCase):
-    def test_complete_two_market_render_keeps_source_and_delay_notice(self):
-        a,hk=quotes(3500),quotes(1500)
+    def test_daily_screen_uses_only_a_shares_and_keeps_history_navigation(self):
+        a = quotes(3500)
         a.attrs['quality']=validate_market_data(a,'A股','腾讯测试源')
-        hk.attrs['quality']=validate_market_data(hk,'港股','东财原始字段/delay')
-        hk.attrs['quality']['行情时效']='港股官方延迟源，最多30交易分钟延迟'
-        with TemporaryDirectory() as directory, patch.object(picker,'__file__',str(Path(directory)/'picker.py')), patch.object(picker,'fetch_market',side_effect=[a,hk]):
-            self.assertEqual(picker.main(),0)
-            data=json.loads((Path(directory)/'docs/data.json').read_text())
-            html=(Path(directory)/'docs/index.html').read_text()
+        a.attrs['quality']['行情时效'] = 'A 股收盘报价已核对'
+        with (TemporaryDirectory() as directory,
+              patch.object(picker, '__file__', str(Path(directory)/'picker.py')),
+              patch.object(picker, 'fetch_a_market', return_value=a) as fetch_a,
+              patch.object(picker, 'fetch_market', side_effect=AssertionError('意外查询其他市场')),
+              patch.object(picker, 'score_hk', side_effect=AssertionError('意外计算港股评分'))):
+            self.assertEqual(picker.main(), 0)
+            fetch_a.assert_called_once_with("A股", picker.EM_HOSTS_A, picker.EM_FS_A)
+            data=json.loads((Path(directory)/'docs/data.json').read_text(encoding='utf-8'))
+            html=(Path(directory)/'docs/index.html').read_text(encoding='utf-8')
             self.assertEqual(len(data['a_shares']),20)
-            self.assertEqual(len(data['hk_shares']),20)
+            self.assertNotIn('hk_shares', data)
+            self.assertEqual(set(data['quality']), {'A股'})
+            self.assertEqual(html.count('<table>'), 1)
+            self.assertNotIn("港股", html)
             self.assertIn('腾讯测试源',html)
-            self.assertIn('最多30交易分钟延迟',html)
-            self.assertIn('行情时效',data['quality']['港股'])
+            self.assertIn('A 股收盘报价已核对', html)
             self.assertNotIn('href="./ai.html"', html)
             self.assertIn('<p class="ai-nav">', html)
             self.assertEqual(html.count('href="./history/"'), 1)

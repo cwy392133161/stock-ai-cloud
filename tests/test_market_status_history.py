@@ -6,11 +6,12 @@ import unittest
 from unittest.mock import patch
 
 import publish_guard as guard
+from tests.a_share_fixtures import ARTICLES, ROWS
 
 
 OLD = "2026-11-10 17:58"
 NEW = "2026-11-12 17:30"
-REPORT = '<h1>原报告</h1><small>行情快照：' + OLD + '</small><article>原正文</article>'
+REPORT = '<h1>原报告</h1><small>行情快照：' + OLD + '</small><p>原正文</p>' + ARTICLES
 
 
 class MarketStatusHistoryTests(unittest.TestCase):
@@ -42,9 +43,9 @@ class MarketStatusHistoryTests(unittest.TestCase):
         self.assertEqual(result["last_screening_outcome"], "failure")
 
     def test_report_only_records_research_result_during_an_unresolved_outage(self):
-        counts = ('<meta name="research-approved-count" content="10">'
+        counts = ('<meta name="research-approved-count" content="5">'
                   '<meta name="research-limited-count" content="0">'
-                  '<meta name="research-total-count" content="10">')
+                  '<meta name="research-total-count" content="5">')
         for outcome, state in (("success", "current"), ("failure", "failed")):
             with self.subTest(outcome=outcome), self.fixture() as root:
                 (root / "ai.html").write_text(REPORT + counts)
@@ -146,7 +147,7 @@ class MarketStatusHistoryTests(unittest.TestCase):
         def files():
             with TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "data.json").write_text(json.dumps({"updated": OLD, "a_shares": [{"代码": "000001"}]}))
+                (root / "data.json").write_text(json.dumps({"updated": OLD, "a_shares": ROWS}))
                 (root / "index.html").write_text('<h1>旧榜</h1><p class="ai-nav">旧</p>')
                 (root / "ai.html").write_text(REPORT)
                 yield root

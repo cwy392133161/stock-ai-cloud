@@ -40,9 +40,12 @@ class WorkflowSafetyTests(unittest.TestCase):
         positions = [daily.index(marker) for marker in markers]
         self.assertEqual(positions, sorted(positions))
 
-    def test_probe_hk_does_not_repeat_failed_normal_hosts(self):
+    def test_ranking_and_manual_report_workflows_only_require_a_shares(self):
         source = (ROOT / ".github/workflows/source-validation.yml").read_text()
-        self.assertIn('fetch_em_market("港股", ["delay"], EM_FS_HK, "HK")', source)
+        self.assertNotIn("score_hk", source)
+        daily = (ROOT / ".github/workflows/daily.yml").read_text(encoding="utf-8")
+        self.assertIn('snapshot["a_shares"]', daily)
+        self.assertNotIn("hk_shares", daily)
 
 
 if __name__ == "__main__":

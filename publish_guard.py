@@ -10,6 +10,7 @@ import re
 import sys
 from html import escape
 from datetime import datetime, timezone
+from bs4 import BeautifulSoup
 from market_schedule import SCHEDULE_BLOCK_REASONS
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -28,6 +29,23 @@ def _single_meta(report_html, name):
     values = re.findall(r'<meta name="' + re.escape(name) + r'" content="([^"]*)">',
                         report_html or "")
     return values[0] if len(values) == 1 else None
+
+
+def _matches_a_selections(snapshot, report_html):
+    codes = [str(row.get("代码") or "").strip() for row in snapshot.get("a_shares", [])[:5]]
+    if len(set(codes)) != 5 or "" in codes:
+        return False
+    articles = BeautifulSoup(report_html, "html.parser").find_all("article")
+    if len(articles) != len(codes):
+        return False
+    for article, code in zip(articles, codes):
+        heading = article.find("b", recursive=False)
+        if not heading or heading.get("id") != "stock-" + code:
+            return False
+        label = heading.get_text(strip=True)
+        if not label.startswith("A股 · ") or not label.endswith(f" ({code})"):
+            return False
+    return True
 
 
 def market_freshness(current, market_state, screening_outcome, previous):
@@ -115,15 +133,16 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
         "research-approved-count", "research-limited-count", "research-total-count")]
     counts_valid = (all(value is not None and re.fullmatch(r"[0-9]+", value)
                         for value in count_markers) and
-                    int(count_markers[2]) == 10 and
-                    int(count_markers[0]) + int(count_markers[1]) <= 10)
+                    int(count_markers[2]) == 5 and
+                    int(count_markers[0]) + int(count_markers[1]) <= 5)
+    matches_selection = total_count == 5 and _matches_a_selections(snapshot, undecorated)
     # Only the current run's success can lift a hold. Never reuse ai_step from
     # previous status, a content hash, new banners, or a mere skipped refresh.
     new_audited_generation = (job_outcome == "success" and exact and
                              audit_version == "evidence-scope-v2" and
                              bool(generation and re.fullmatch(
                                  r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}", generation)) and
-                             generation != frozen_generation and counts_valid)
+                             generation != frozen_generation and counts_valid and matches_selection)
     frozen = bool(review_required or (was_frozen and not new_audited_generation))
     if frozen:
         state, description = ("review-required", "既有报告发现归因与主体范围问题，需重新审核；"
@@ -148,12 +167,12 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
         state, description = "failed", "本次AI研究生成失败；旧报告仅供历史查阅"
     elif not exact:
         state, description = "stale", "AI报告未匹配本期行情快照；旧报告仅供历史查阅"
-    elif verified_count is None or total_count is None or total_count != 10:
-        state, description = "unverified", "本期报告缺少独立研究质量标记，不能视作深度研究"
-    elif verified_count + limited_count > total_count:
-        state, description = "unverified", "研究状态数量异常，禁止标记为通过"
+    elif not matches_selection:
+        state, description = "unverified", "研究报告与本期 A 股前五名不匹配"
+    elif not counts_valid:
+        state, description = "unverified", "研究审核计数缺失或异常"
     elif verified_count == 0 and limited_count == 0:
-        state, description = "facts-only", "本期研究资料已更新，但10只均未通过AI解释发布门槛"
+        state, description = "facts-only", "本期 A 股五家公司仅展示已核对资料"
     elif verified_count == 0:
         state, description = ("limited", "本期有" + str(limited_count) + "/" +
                               str(total_count) + "只显示条件性研究，缺少可逐字核对的官方原文主张")
@@ -162,7 +181,7 @@ def research_freshness(snapshot, report_html, ai_enabled, job_outcome, market_st
                               "/" + str(total_count) + "只有逐字证据研究，另有" +
                               str(limited_count) + "只条件性研究")
     else:
-        state, description = "current", "本期10只股票研究均通过基础证据发布门槛"
+        state, description = "current", "本期 A 股五家公司研究均通过基础证据发布门槛"
     return {
         "state": state,
         "description": description,

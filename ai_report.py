@@ -26,7 +26,7 @@ DOCS = ROOT / "docs"
 MARKET_FIELDS = {"A股": "a_shares", "港股": "hk_shares"}
 MODEL_SETTINGS = ("AI_API_KEY", "AI_MODEL", "AI_BASE_URL")
 
-def stamp_generated_report(report_html, *, expected_count=10):
+def stamp_generated_report(report_html, *, expected_count=5):
     """Mark a newly completed report from this ruleset, not a banner rewrite.
 
     Called only after the generation/review pipeline has completed its scope.
@@ -519,7 +519,7 @@ def render_research_brief(brief):
 
 
 def render_report(data, output, updated, archived_codes=(), disclosures=None, peer_data=None,
-                  *, markets=("A股", "港股")):
+                  *, markets=("A股",)):
     summaries = [finance_summary(market, [f for m, _, _, f in output if m == market])[0]
                  for market in markets]
     scope = "、".join(f"{market}前5只" for market in markets) + f"，共{len(output)}只。"
@@ -849,7 +849,7 @@ def _read_frozen_filings(notices):
         notice["编号"] = f"D{index}"
 
 
-def generate_report(data, output_path, *, markets=("A股", "港股"), cache_dir=None,
+def generate_report(data, output_path, *, markets=("A股",), cache_dir=None,
                     evidence_snapshot=None):
     """Research the first five ranked stocks of each requested market using this snapshot."""
     key, model, endpoint = (os.getenv(name, "").strip() for name in MODEL_SETTINGS)

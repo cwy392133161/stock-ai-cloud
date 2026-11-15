@@ -56,10 +56,10 @@ jobs:
           snapshot = json.loads(Path("docs/data.json").read_text())
           if os.getenv("AI_ENABLED") != "true":
               raise SystemExit("请启用 AI_ENABLED 后生成报告")
-          for field in ("a_shares", "hk_shares"):
-              rows = snapshot[field]
-              if len(rows) != 20 or len({row["代码"] for row in rows}) != 20:
-                  raise SystemExit(f"快照榜单不完整: {field}")
+          rows = snapshot["a_shares"]
+          codes = {row.get("代码") for row in rows}
+          if len(rows) != 20 or len(codes) != 20 or not all(codes):
+              raise SystemExit("A 股快照榜单不完整")
           print("本次报告使用已发布行情快照:", snapshot["updated"])
           PY
 

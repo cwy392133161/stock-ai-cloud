@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-A 股 + 港股多因子选股（免费云端版）
+A 股多因子选股（免费云端版）
 
 每天收盘后由 GitHub Actions 定时运行：
 1. 拉取东方财富原始字段行情；A 股限流即停，不使用字段不全的新浪榜单
-2. 规则化多因子打分（趋势 / 活跃度 / 估值 / 规模），各市场分别取 Top 20
+2. 按趋势、活跃度、估值和规模打分，取 A 股前 20 名
 3. 生成中文网页 docs/index.html（供 GitHub Pages 发布）
 
 注意：这是规则化评分，不是大语言模型分析；结果仅供学习参考，不构成投资建议。
@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover
 CST = timezone(timedelta(hours=8))
 
 # ---------- 可调参数 ----------
-TOP_N = 20                 # 每个市场取前 N 只
+TOP_N = 20                 # A 股取前 N 只
 MIN_FLOAT_CAP_A = 20e8     # A 股：流通市值不低于 20 亿人民币
 MIN_AMOUNT_A = 5e7          # A 股：当日成交额不低于 5000 万人民币
 MIN_FLOAT_CAP_HK = 20e8    # 港股：流通市值不低于 20 亿港币
@@ -416,7 +416,7 @@ HTML_HEAD = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>A 股 + 港股 AI 选股榜</title>
+<title>A 股选股榜</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;background:#f6f7f9;color:#222}
 .wrap{max-width:960px;margin:0 auto;padding:16px}
@@ -434,16 +434,16 @@ th{background:#fafafa;font-size:13px;color:#555}
 </style>
 </head>
 <body><div class="wrap">
-<h1>📈 A 股 + 港股 AI 选股榜</h1>
+<h1>A 股选股榜</h1>
 {ai_nav}
-<p class="sub"><a href="./history/">按日期查看历史收盘行情和公告</a></p>
+<p class="sub"><a href="./history/">历史收盘行情、公告和 AI 研究</a></p>
 <p class="sub">更新时间：<b>{updated}</b>（北京时间）<br>
-规则化多因子评分：趋势 40% / 活跃度 25% / 估值 20% / 规模 15%。各市场本次采用的行情来源见下方质量核验。</p>
+评分权重为趋势 40%、活跃度 25%、估值 20%、规模 15%。</p>
 """
 
 HTML_FOOT = """
 <p class="note">⚠️ 本页面由程序按公开行情数据自动生成，仅供学习参考，不构成任何投资建议。股市有风险，入市需谨慎。<br>
-选股逻辑：过滤 ST / 退市、流通市值与成交额过小的股票后，按趋势、活跃度、估值、规模综合打分，各市场取前 20 名。数据来源：东方财富原始字段行情（含港股官方延迟源），A 股不可用时使用经字段核验的腾讯备用源。<br>
+剔除名称含 ST 或退市标识的股票后，保留流通市值至少 20 亿元、当日成交额至少 5,000 万元的 A 股，按综合评分取前 20 名。<br>
 遇到节假日、行情接口故障或 GitHub 定时任务延迟，页面可能显示上一次的结果，请以页面上的更新时间为准。</p>
 </div></body></html>
 """
@@ -463,69 +463,46 @@ def table_html(title, rows, market):
     return "\n".join(lines)
 
 
-def main():
-    if ak is None:
-        print("未安装 akshare，请先 pip install -r requirements.txt", file=sys.stderr)
-        return 2
-    now = datetime.now(CST)
-    updated = now.strftime("%Y-%m-%d %H:%M")
-
-    df_a = fetch_market("A股", EM_HOSTS_A, EM_FS_A, "A",
-                        ak.stock_zh_a_spot_em, ak.stock_zh_a_spot)
-    df_hk = fetch_market("港股", EM_HOSTS_HK, EM_FS_HK, "HK",
-                         ak.stock_hk_spot_em, ak.stock_hk_spot)
-
-    ranked_a = score_a(df_a)
-    ranked_hk = score_hk(df_hk)
-    for market_name, ranked in (("A股", ranked_a), ("港股", ranked_hk)):
-        if len(ranked) >= TOP_N and ranked.head(TOP_N)["评分"].nunique() <= 1:
-            raise MarketDataQualityError(
-                f"{market_name} 前{TOP_N}名评分全部相同，疑似多因子评分退化；拒绝覆盖旧榜单"
-            )
-    # Full eligible A-share universe provides a less cherry-picked valuation
-    # context than comparing only the top-ranked names. No extra network call.
-    sector_reference = industry_benchmarks(ranked_a)
-    top_a = pick_rows(ranked_a, "A", TOP_N, sector_reference)
-    top_hk = pick_rows(ranked_hk, "HK", TOP_N)
-    # Persist a bounded reproducible, similarity-sized peer candidate pool
-    # without changing scores, Top20 or the original price snapshot.
-    a_peer_pool = candidate_pool(ranked_a, top_a[:5])
-    print(f"A 股候选 {len(df_a)} 只，入选 {len(top_a)} 只；港股候选 {len(df_hk)} 只，入选 {len(top_hk)} 只", flush=True)
-    if len(top_a) != TOP_N or len(top_hk) != TOP_N:
-        raise MarketDataQualityError("通过有效市值、成交额门槛的股票不足 Top 20，保留已有榜单")
-    quality = {"A股": df_a.attrs["quality"], "港股": df_hk.attrs["quality"]}
-
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
-    os.makedirs(out_dir, exist_ok=True)
+def render_index(snapshot, has_report=False):
     # publish_guard updates this navigation after the optional report step.
-    if os.path.exists(os.path.join(out_dir, "ai.html")):
+    if has_report:
         ai_nav = ('<p class="ai-nav"><a href="./ai.html">🧠 查看 DeepSeek AI 中文研究报告</a> '
                   '<span>（请核对报告时间）</span></p>')
     else:
         ai_nav = '<p class="ai-nav">AI 研究报告尚未生成。</p>'
-    html = HTML_HEAD.replace("{updated}", updated).replace("{ai_nav}", ai_nav)
-    for m in ("A股", "港股"):
-        q = quality[m]
-        cov = q["字段有效覆盖率%"]
-        text = ("行情质量核验：" + m + " · " + q["行情来源"]
-                + " · 有效股票 " + str(q["有效股票数"])
-                + " · 60日涨幅 " + str(cov["60日涨跌幅"]) + "%"
-                + " · 换手率 " + str(cov["换手率"]) + "%"
-                + " · 流通市值 " + str(cov["流通市值"]) + "%")
-        timing = q.get("行情时效", q.get("时效说明", ""))
-        if timing:
-            text += " · " + timing
-        html += '<p class="sub">' + escape_html(text) + '</p>'
-    html += table_html("🇨🇳 A 股 Top 20", top_a, "A")
-    html += table_html("🇭🇰 港股 Top 20", top_hk, "HK")
-    html += HTML_FOOT
-    snapshot = json.dumps({"updated": updated, "quality": quality, "a_shares": top_a,
-                           "hk_shares": top_hk, "a_peer_pool": a_peer_pool},
-                          ensure_ascii=False, indent=2, allow_nan=False)
+    html = HTML_HEAD.replace("{updated}", escape_html(snapshot["updated"])).replace("{ai_nav}", ai_nav)
+    quality = snapshot["quality"]["A股"]
+    coverage = quality["字段有效覆盖率%"]
+    quality_note = (f"行情质量核验：A股 · {quality['行情来源']} · 有效股票 {quality['有效股票数']}"
+                    f" · 60日涨幅 {coverage['60日涨跌幅']}% · 换手率 {coverage['换手率']}%"
+                    f" · 流通市值 {coverage['流通市值']}%")
+    timing = quality.get("行情时效", quality.get("时效说明", ""))
+    if timing:
+        quality_note += " · " + timing
+    html += '<p class="sub">' + escape_html(quality_note) + '</p>'
+    return html + table_html("A 股 Top 20", snapshot["a_shares"], "A") + HTML_FOOT
+
+
+def main():
+    updated = datetime.now(CST).strftime("%Y-%m-%d %H:%M")
+    frame = fetch_a_market("A股", EM_HOSTS_A, EM_FS_A)
+    ranked = score_a(frame)
+    if len(ranked) < TOP_N:
+        raise MarketDataQualityError("通过有效市值、成交额门槛的 A 股不足 Top 20，保留已有榜单")
+    if ranked.head(TOP_N)["评分"].nunique() <= 1:
+        raise MarketDataQualityError(f"A股 前{TOP_N}名评分全部相同，疑似多因子评分退化；拒绝覆盖旧榜单")
+    top = pick_rows(ranked, "A", TOP_N, industry_benchmarks(ranked))
+    snapshot = {"updated": updated, "quality": {"A股": frame.attrs["quality"]},
+                "a_shares": top, "a_peer_pool": candidate_pool(ranked, top[:5])}
+    print(f"A 股候选 {len(frame)} 只，入选 {len(top)} 只", flush=True)
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
+    os.makedirs(out_dir, exist_ok=True)
+    html = render_index(snapshot, os.path.exists(os.path.join(out_dir, "ai.html")))
+    serialized = json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False)
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
-        f.write(snapshot)
+        f.write(serialized)
     print(f"已生成 docs/index.html（更新时间 {updated}）", flush=True)
     return 0
 

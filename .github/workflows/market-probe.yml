@@ -5,7 +5,7 @@ on:
       market:
         description: Market to validate (no AI or publication)
         type: choice
-        default: HK
+        default: A
         options: [A, HK]
 permissions:
   contents: read

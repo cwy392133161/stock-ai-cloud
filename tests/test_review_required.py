@@ -7,20 +7,21 @@ from unittest.mock import patch
 
 import publish_guard as guard
 from ai_report import stamp_generated_report
+from tests.a_share_fixtures import ARTICLES, ROWS
 
-SNAPSHOT = {"updated": "2026-11-10 17:58"}
+SNAPSHOT = {"updated": "2026-11-10 17:58", "a_shares": ROWS}
 
 
-def report(approved=1, limited=7, total=10):
+def report(approved=1, limited=3, total=5):
     return ('<!doctype html><html><title>研究档案</title>'
             f'<meta name="research-approved-count" content="{approved}">'
             f'<meta name="research-limited-count" content="{limited}">'
             f'<meta name="research-total-count" content="{total}">'
             '<h1>原报告</h1><small>行情快照：2026-11-10 17:58；'
             'AI 生成：2026-11-10 18:09（北京时间）</small>'
-            '<article><p>原模型正文不得静默改写</p>'
+            + ARTICLES + '<p>原模型正文不得静默改写</p>'
             '<a href="https://www1.hkexnews.hk/original.pdf#page=3">D1 p3</a>'
-            '<blockquote>原始PDF证据</blockquote></article></html>')
+            '<blockquote>原始PDF证据</blockquote></html>')
 
 
 class ReviewHoldTests(unittest.TestCase):
@@ -36,7 +37,7 @@ class ReviewHoldTests(unittest.TestCase):
         result = self.freeze()
         self.assertEqual(result["state"], "review-required")
         self.assertIsNone(result["review_frozen_generation"])
-        self.assertEqual((result["research_approved"], result["research_limited"], result["research_total"]), (1, 7, 10))
+        self.assertEqual((result["research_approved"], result["research_limited"], result["research_total"]), (1, 3, 5))
         self.assertEqual(result["research_counts_status"], "historical-unreviewed")
         self.assertIn("未经此次复审确认", result["description"])
 
@@ -119,16 +120,16 @@ class ReviewHoldTests(unittest.TestCase):
 
     def test_invalid_or_missing_counts_do_not_clear(self):
         new = stamp_generated_report(report())
-        invalid = [new.replace('name="research-total-count" content="10"',
+        invalid = [new.replace('name="research-total-count" content="5"',
                                'name="research-total-count" content="9"'),
                    new.replace('name="research-approved-count" content="1"',
                                'name="research-approved-count" content="-1"'),
-                   new.replace('name="research-limited-count" content="7"',
+                   new.replace('name="research-limited-count" content="3"',
                                'name="research-limited-count" content="-2"'),
                    new.replace('name="research-approved-count" content="1"',
                                'name="research-approved-count" content="4"'),
-                   new.replace('<meta name="research-limited-count" content="7">', ''),
-                   new + '<meta name="research-total-count" content="10">']
+                   new.replace('<meta name="research-limited-count" content="3">', ''),
+                   new + '<meta name="research-total-count" content="5">']
         for text in invalid:
             with self.subTest(text=text[:220]):
                 self.assertEqual(self.evaluate(text, self.freeze())["state"], "review-required")
@@ -141,7 +142,17 @@ class ReviewHoldTests(unittest.TestCase):
 
     def test_normal_non_hold_behavior_is_unchanged(self):
         self.assertEqual(guard.research_freshness(SNAPSHOT, report(), True, "success")["state"], "partial")
-        self.assertEqual(guard.research_freshness(SNAPSHOT, report(10, 0), True, "success")["state"], "current")
+        self.assertEqual(guard.research_freshness(SNAPSHOT, report(5, 0), True, "success")["state"], "current")
+
+    def test_other_markets_and_different_stocks_do_not_clear_review_or_appear_current(self):
+        page = stamp_generated_report(report(5, 0))
+        legacy = stamp_generated_report(report(6, 4, 10), expected_count=10)
+        for other in (legacy, page.replace("A股 ·", "港股 ·", 1),
+                      page.replace("stock-000001", "stock-000009", 1),
+                      page.replace("</html>", "<article>额外报告</article></html>")):
+            with self.subTest(other=other):
+                self.assertEqual(guard.research_freshness(SNAPSHOT, other, True, "success")["state"], "unverified")
+                self.assertEqual(self.evaluate(other, self.freeze())["state"], "review-required")
 
     def test_main_persists_hold_without_reusing_stored_success_or_mutating_report(self):
         with TemporaryDirectory() as tmp:

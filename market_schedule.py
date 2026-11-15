@@ -1,4 +1,4 @@
-"""Avoid fetching 'new' A/H shares on Saturday/Sunday in China.
+"""Check the A-share publication window in Beijing time.
 
 This is a conservative *weekday* filter, not a complete exchange holiday
 calendar. A user can still choose report_only to research the last snapshot.
@@ -57,7 +57,7 @@ def is_trading_weekday(timestamp):
 
 
 def is_market_ready(timestamp):
-    """Daily A/H ranking waits until 17:00 Beijing, including HK delay buffer.
+    """The daily A-share ranking publication window opens at 17:00 Beijing.
 
     This is still a weekday/time filter, not an exchange holiday calendar.
     The quote quality and date gates remain mandatory after this check.

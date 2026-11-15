@@ -116,34 +116,35 @@ class ReportTests(unittest.TestCase):
         self.assertFalse(outage)
         self.assertIn("产品不适用 5 只", summary)
 
-    def test_generation_warns_on_one_market_outage_and_keeps_ten_articles(self):
+    def test_daily_generation_only_researches_five_a_shares_from_legacy_snapshot(self):
         a_error = {"状态": "接口无记录"}
-        hk_full = {"状态": "可用", "指标": {"EPS": "1 CNY/股（累计）"}}
-        hk_partial = {"状态": "部分可用", "指标": {"ROE": "1 %（报告期）"}, "缺失": {"EPS": "币种待核实"}}
-        product = {"状态": "公司财务分析不适用", "产品类型": "ETF"}
-        reports = [a_error] * 5 + [hk_full, hk_partial, a_error, product, product]
-        stocks = [{"代码": str(i), "名称": str(i)} for i in range(5)]
-        data = {"a_shares": stocks, "hk_shares": stocks, "updated": "2026-11-06 13:00"}
+        stocks = [{"代码": f"{i:06d}", "名称": str(i)} for i in range(1, 6)]
+        data = {"a_shares": stocks, "hk_shares": [{"代码": "00700", "名称": "腾讯控股"}] * 5,
+                "updated": "2026-11-06 13:00"}
         env = {"GITHUB_ACTIONS": "true", "AI_API_KEY": "test-only", "AI_MODEL": "test",
                "AI_BASE_URL": "https://example.invalid"}
         with tempfile.TemporaryDirectory() as tmp, patch.object(ai_report, "DOCS", Path(tmp)), \
-                patch.dict(os.environ, env), patch.object(ai_report, "stock_directory", return_value={}), \
+                patch.dict(os.environ, env), patch.object(ai_report, "stock_directory") as directory, \
                 patch.object(ai_report, "fetch_disclosures", return_value={
                     "来源": "样例", "状态": "未检索到", "查询期间": "测试", "公告": []}), \
-                patch.object(ai_report, "fetch_financial", side_effect=reports), \
+                patch.object(ai_report, "fetch_financial", return_value=a_error) as finance, \
                 patch.object(ai_report.requests, "post") as post, redirect_stdout(io.StringIO()) as log:
             Path(tmp, "data.json").write_text(json.dumps(data), encoding="utf-8")
             post.return_value.json.return_value = {"choices": [{"message": {"content": "示例分析"}}]}
             ai_report.main()
             output = Path(tmp, "ai.html").read_text(encoding="utf-8")
-        self.assertEqual(post.call_count, 10)
+        self.assertEqual(post.call_count, 5)
+        directory.assert_not_called()
+        self.assertEqual([call.args[:2] for call in finance.call_args_list],
+                         [("A股", s["代码"]) for s in stocks])
         for request in post.call_args_list:
             self.assertEqual(request.kwargs["json"]["response_format"],
                              {"type": "json_object"})
             self.assertIn("JSON", request.kwargs["json"]["messages"][0]["content"])
-        self.assertEqual(output.count("<article>"), 10)
+        self.assertEqual(output.count("<article>"), 5)
         self.assertIn("0/5 家公司取得指标", output)
-        self.assertIn("2/3 家公司取得指标（完整 1，部分 1，无可用指标 1），产品不适用 2 只", output)
+        self.assertNotIn("港股前5只", output)
+        self.assertNotIn("腾讯控股", output)
         # The research quality gate now warns on every short/unsupported
         # mock AI analysis in addition to the market-level data outage.
         self.assertEqual(log.getvalue().count("::warning::A股"), 1)

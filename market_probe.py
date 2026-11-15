@@ -7,7 +7,7 @@ from picker import EM_HOSTS_HK, EM_FS_HK, EM_HOSTS_A, EM_FS_A, fetch_market
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--market", choices=("A", "HK"), default="HK")
+    parser.add_argument("--market", choices=("A", "HK"), default="A")
     args = parser.parse_args(argv)
     label, hosts, fs = (("A股", EM_HOSTS_A, EM_FS_A) if args.market == "A"
                         else ("港股", EM_HOSTS_HK, EM_FS_HK))

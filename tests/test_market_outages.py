@@ -8,6 +8,7 @@ from pathlib import Path
 
 import market_schedule
 import publish_guard
+from tests.a_share_fixtures import ARTICLES, ROWS
 
 
 class MarketOutageTests(unittest.TestCase):
@@ -46,10 +47,11 @@ class MarketOutageTests(unittest.TestCase):
 
     def test_report_only_can_research_existing_snapshot(self):
         state = publish_guard.research_freshness(
-            {"updated": "2026-11-06 23:25"},
+            {"updated": "2026-11-06 23:25", "a_shares": ROWS},
             '<small>行情快照：2026-11-06 23:25</small>'
-            '<meta name="research-approved-count" content="10">'
-            '<meta name="research-total-count" content="10">',
+            '<meta name="research-approved-count" content="5">'
+            '<meta name="research-limited-count" content="0">'
+            '<meta name="research-total-count" content="5">' + ARTICLES,
             True, "success", market_state=None)
         self.assertEqual(state["state"], "current")
 

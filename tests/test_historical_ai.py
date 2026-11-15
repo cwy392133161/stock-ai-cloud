@@ -69,7 +69,7 @@ class HistoricalResearchTests(unittest.TestCase):
 
     def test_daily_scope_and_invalid_selections_fail_before_paid_requests(self):
         with self.assertRaisesRegex(ValueError, "港股"):
-            ai_report.generate_report(self.data, self.page)
+            ai_report.generate_report(self.data, self.page, markets=("港股",))
         with self.assertRaisesRegex(ValueError, "发布目录"):
             ai_report.generate_report(self.data, self.page, markets=("A股",), cache_dir=self.docs / "cache")
         self.data["a_shares"][1] = self.data["a_shares"][0]
