@@ -54,7 +54,7 @@ def _source(archive, stocks):
     from archive_research import _read_research
     path = archive / ORIGINAL
     raw = path.read_bytes()
-    html = raw.decode("utf-8")
+    html = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     page = BeautifulSoup(html, "html.parser")
     details = _read_research(html, DAY, stocks)
     summary = json.loads((archive / "summary.json").read_text(encoding="utf-8"))["bank_research"]
@@ -133,14 +133,16 @@ def recover(old, cache, packet):
         def capture(data, output, _now, *, disclosures, peer_data, markets):
             original = render_original(data, output, source["generated_at"], disclosures=disclosures,
                                        peer_data=peer_data, markets=markets)
-            articles = BeautifulSoup(original, "html.parser").select("article")
+            articles = BeautifulSoup(original.replace("\r\n", "\n").replace("\r", "\n"), "html.parser").select("article")
             if len(articles) != 5 or len(output) != 5 or list(replies) != codes:
                 raise ValueError("五家公司的原答尚未完整恢复")
             for code, article, genuine, item in zip(codes, articles, original_articles, output):
                 market, stock, text, finance = item
                 if (market != "A股" or stock["代码"] != code or text != replies[code]["reply"][:10000]
-                        or finance != evidence[code]["finance"] or article != genuine):
-                    raise ValueError(f"{code} 旧渲染结果与已发布原付费文章或原始财务不同")
+                        or finance != evidence[code]["finance"]):
+                    raise ValueError(f"{code} 原答与证券或原始财务不同")
+                if article != genuine:
+                    raise ValueError(f"{code} 旧渲染结果与已发布原付费文章不同")
                 rows.append(dict(replies[code], code=code, stock=stock, finance=finance,
                                  disclosures=disclosures[market, code], peers=peer_data[market, code]))
             return original
