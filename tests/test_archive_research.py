@@ -42,10 +42,12 @@ class ArchiveResearchTests(unittest.TestCase):
         self.assertEqual(len(page.select('a[href="./ai.html"]')), 1)
         self.assertEqual([a["href"] for a in page.select("#a-top20 a")],
                          ["./ai.html#stock-" + s["代码"] for s in self.stocks])
-        self.assertIsNotNone(page.select_one('#hong-kong a[href="./hkex-quotes.zip"]'))
-        self.assertIn("跳过评分", page.select_one("#hong-kong").get_text())
+        self.assertIsNotNone(page.select_one('#a-shares a[href="./a-quotes.zip"]'))
+        self.assertFalse(page.select('#hong-kong, a[href="#hong-kong"], a[href="./hkex-quotes.zip"]'))
+        self.assertNotIn("港股", page.get_text())
         catalog = BeautifulSoup((self.archive.parent / "index.html").read_text(encoding="utf-8"), "html.parser")
         self.assertEqual(len(catalog.select('a[href="./2026-11-13/ai.html"]')), 1)
+        self.assertNotIn("港股", catalog.get_text())
         self.assertEqual(json.loads((self.archive / "summary.json").read_text(encoding="utf-8"))["research"], research)
 
     def test_optional_sources_file_has_one_download_and_summary_entry(self):

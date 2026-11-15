@@ -91,7 +91,6 @@ def publish_archive_research(archive_dir, report_path):
         link.string = "下载 A 股前五名的财务数据、公告及财报摘录（JSON 压缩包）"
         sources_note.append(link)
         page.select_one("#a-shares").append(sources_note)
-    page.select_one("#hong-kong p.meta").string = "本期港股跳过评分，仅发布收市行情。"
     day_link = catalog.find("a", href=f"./{day}/")
     if day_link is None:
         raise ValueError("历史归档目录缺少该交易日")
@@ -99,8 +98,7 @@ def publish_archive_research(archive_dir, report_path):
     report_link = catalog.new_tag("a", href=f"./{day}/ai.html")
     report_link.string = "A 股前五名 AI 研究"
     description.clear()
-    description.extend(["A 股 Top 20、", report_link, "、港股收市行情及公司公告样本。"])
-    summary["hong_kong"]["ranking_status"] = "skipped"
+    description.extend(["A 股 Top 20、", report_link, "及公司公告样本。"])
     summary["research"] = research
 
     # The workflow publishes the resulting files together in one git commit.
