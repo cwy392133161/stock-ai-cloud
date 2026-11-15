@@ -33,15 +33,25 @@ def load_snapshot(archive):
     if verified["有效股票数"] != quality["有效股票数"]:
         raise ValueError("A 股有效行情数与归档不符")
     eligible = score_a(frame)
-    ranked = pick_rows(eligible, "A", 20)
     published = market["top20"]
-    if len(eligible) != market["eligible"] or len(ranked) != 20 or len(published) != 20:
+    if len(eligible) != market["eligible"] or len(published) != 20:
         raise ValueError("A 股可选范围或榜单数量与归档不符")
+    codes = [row["代码"] for row in published]
+    if (len(set(codes)) != 20 or not set(codes).issubset(eligible["代码"])
+            or [row["评分"] for row in published] != eligible["评分"].head(20).tolist()):
+        raise ValueError("归档榜单与全市场最高二十个分数不符")
+    # Scores are rounded to one decimal. Tied rows can appear in a different
+    # order under NumPy's platform-specific quicksort. Keep their archived
+    # order while independently recomputing the factors of every named stock.
+    ordered = eligible.set_index("代码", drop=False).loc[codes]
+    ranked = pick_rows(ordered, "A", 20)
     quote_times = dict(zip(frame["代码"], frame["报价时间"]))
     for result, saved in zip(ranked, published):
-        if (any(saved.get(k) != v for k, v in result.items()) or
-                saved["报价时间"] != quote_times[result["代码"]]):
-            raise ValueError(f"A 股评分或行情与存档不符：{result['代码']}")
+        fields = [key for key, value in result.items() if saved.get(key) != value]
+        if saved["报价时间"] != quote_times[result["代码"]]:
+            fields.append("报价时间")
+        if fields:
+            raise ValueError(f"A 股评分或行情与存档不符：{result['代码']} {fields}")
     return {"updated": stamps.max().strftime("%Y-%m-%d %H:%M"),
             "a_shares": published}
 
