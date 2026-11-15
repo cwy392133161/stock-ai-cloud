@@ -1,0 +1,45 @@
+{
+  "scope": "bounded-published-text-correction-not-full-reaudit",
+  "original_generation_id": "7d2681103b17462da0236d64d1e54164",
+  "source_sha256": "01c7f99829eb218636b77bac5e280cb5b37f4b0e316d645a87a8a956a853e9c3",
+  "corrected_sha256_before_status_banner": "0c84638fc707df8c5ba9c531b48b401a30d951c41b44d4e16860e2d1d92f0204",
+  "removed_paragraphs": [
+    {
+      "issuer": "A股 · 北京银行 (601169)",
+      "section": "经营和估值",
+      "original_text": "经营和估值 需核验拨备覆盖率上升来自拨备余额增加还是贷款分母收缩，并区分本公司与集团口径。低倍数需同行样本核验。"
+    },
+    {
+      "issuer": "A股 · 青岛银行 (002948)",
+      "section": "跟踪条件",
+      "original_text": "跟踪条件 下期同口径贷款分类迁徙率与减值准备变动能否解释不良率与拨备覆盖率的同时变化；核心一级资本充足率在风险加权资产扩张下能否继续上升；若下期披露显示核销规模显著扩大或减值计提下降，则当前资产质量改善逻辑可被否定。"
+    },
+    {
+      "issuer": "A股 · 江苏银行 (600919)",
+      "section": "经营和估值",
+      "original_text": "经营和估值 拨备覆盖率下降6.28个百分点，须区分是不良余额下降、贷款扩张还是准备计提放缓。PE、PB为行情截面值，行业样本不足，不能据此判断优于同业。"
+    },
+    {
+      "issuer": "A股 · 江苏银行 (600919)",
+      "section": "反面证据",
+      "original_text": "反面证据 不良率下降0.03个百分点与拨备覆盖率下降并存，可能意味着分母扩张快于准备增长，而非风险实质出清；"
+    },
+    {
+      "issuer": "A股 · 齐鲁银行 (601665)",
+      "section": "经营和估值",
+      "original_text": "经营和估值 拨备覆盖率提高与不良率下降并存，要追问贷款减值准备余额与核销规模。资本端须拆分核心一级资本净额与风险加权资产，判断充足率下降是分母扩张还是分子消耗。估值分高只反映截面便宜，不能替代对资本内生能力的检验。"
+    },
+    {
+      "issuer": "A股 · 齐鲁银行 (601665)",
+      "section": "反面证据",
+      "original_text": "反面证据 低估值可能反映市场对资本补充与风险加权资产扩张的定价，而非错杀；拨备覆盖率提高也可能来自分母不良下降而非拨备加厚，若贷款减值准备余额未增，则风险抵补改善的证据不足。"
+    }
+  ],
+  "formula_source": "https://jrs.mof.gov.cn/zhengcefabu/cwjx/202006/t20200602_3524593.htm",
+  "original_report": "./ai-bank-reviewed.html",
+  "original_report_sha256": "b0783f73db1e49fc7c49be14746614d33007e0f7d7c557bfb7c8fa751f03d8f3",
+  "original_source_commit": "64737920701a81476aa80987af7fdfbe93e54097",
+  "evidence_sha256": "167743c6f1bde0a950d0d5707ff55abaeda044c7c2bf31958effea7a72bed9f2",
+  "corrected_at_utc": "2026-11-15T22:15:44+00:00",
+  "published_corrected_sha256": "d40223ae0cf47f04b06c14a9cd7a1b8f7cdcb301d167172506c81ef48c3ab55a"
+}
