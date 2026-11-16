@@ -1,0 +1,117 @@
+{
+  "scope": "bounded-bank-narrative-correction-not-full-reaudit",
+  "original_generation_id": "7d2681103b17462da0236d64d1e54164",
+  "source_sha256": "d40223ae0cf47f04b06c14a9cd7a1b8f7cdcb301d167172506c81ef48c3ab55a",
+  "corrected_sha256": "22d9d0b19e8548bba9dabd773e5c1191525cb98e25bda01bb3f334661a218eb2",
+  "removed_paragraphs": [
+    {
+      "issuer": "A股 · 北京银行 (601169)",
+      "section": "入选逻辑",
+      "reasons": [
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "入选逻辑 北京银行进入筛选主要靠价格动量与低估值截面：60日涨幅、年内涨幅和当日涨幅均较明显，动态市盈率与市净率处于低位。但研究焦点是不良率持平而拨备覆盖率微升，这一组合本身不能证明资产质量改善，动量与低倍数也不构成安全边际。",
+      "original_html": "<p><b>入选逻辑</b><br/>北京银行进入筛选主要靠价格动量与低估值截面：60日涨幅、年内涨幅和当日涨幅均较明显，动态市盈率与市净率处于低位。但研究焦点是不良率持平而拨备覆盖率微升，这一组合本身不能证明资产质量改善，动量与低倍数也不构成安全边际。</p>"
+    },
+    {
+      "issuer": "A股 · 北京银行 (601169)",
+      "section": "反面证据",
+      "reasons": [
+        "unverified-ratio-mechanism",
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "反面证据 不良率持平不等于风险暴露停止，拨备覆盖率仅微升也可能由分母变化驱动，而非计提增强。",
+      "original_html": "<p><b>反面证据</b><br/>不良率持平不等于风险暴露停止，拨备覆盖率仅微升也可能由分母变化驱动，而非计提增强。</p>"
+    },
+    {
+      "issuer": "A股 · 青岛银行 (002948)",
+      "section": "入选逻辑",
+      "reasons": [
+        "unverified-ratio-mechanism",
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "入选逻辑 该行前三季度营收与归母净利润同比增速接近，加权ROE抬升，行情估值分偏高，故进入筛选。但核心矛盾在于不良率下降、拨备覆盖率大幅提高与核心一级资本充足率仅小幅上升能否同时成立，且缺少同报告期可逐字核验的贷款迁徙与减值明细。",
+      "original_html": "<p><b>入选逻辑</b><br/>该行前三季度营收与归母净利润同比增速接近，加权ROE抬升，行情估值分偏高，故进入筛选。但核心矛盾在于不良率下降、拨备覆盖率大幅提高与核心一级资本充足率仅小幅上升能否同时成立，且缺少同报告期可逐字核验的贷款迁徙与减值明细。</p>"
+    },
+    {
+      "issuer": "A股 · 青岛银行 (002948)",
+      "section": "经营和估值",
+      "reasons": [
+        "unverified-ratio-mechanism",
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "经营和估值 二是拨备覆盖率大幅提高对应的减值计提与核销节奏，是否与不良率下降同向；三是核心一级资本充足率仅小幅上升，在风险加权资产扩张下资本缓冲是否足够。估值倍数仅作截面对照，同行样本不足，不宜据此判断高低。",
+      "original_html": "<p><b>经营和估值</b><br/>二是拨备覆盖率大幅提高对应的减值计提与核销节奏，是否与不良率下降同向；三是核心一级资本充足率仅小幅上升，在风险加权资产扩张下资本缓冲是否足够。估值倍数仅作截面对照，同行样本不足，不宜据此判断高低。</p>"
+    },
+    {
+      "issuer": "A股 · 青岛银行 (002948)",
+      "section": "反面证据",
+      "reasons": [
+        "unverified-ratio-mechanism",
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "反面证据 拨备覆盖率比上年末大幅提高，可能来自减值计提增加或不良处置加快，两者对利润与资本的含义不同；若不良率下降主要靠核销而非回收，资产质量改善的持续性存疑。核心一级资本充足率升幅有限，若风险加权资产扩张快于资本内生积累，资本缓冲可能被侵蚀。",
+      "original_html": "<p><b>反面证据</b><br/>拨备覆盖率比上年末大幅提高，可能来自减值计提增加或不良处置加快，两者对利润与资本的含义不同；若不良率下降主要靠核销而非回收，资产质量改善的持续性存疑。核心一级资本充足率升幅有限，若风险加权资产扩张快于资本内生积累，资本缓冲可能被侵蚀。</p>"
+    },
+    {
+      "issuer": "A股 · 平安银行 (000001)",
+      "section": "经营和估值",
+      "reasons": [
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "经营和估值 需核验累计净息差回升是否伴随资产收益率或负债成本的结构变化，而非单季扰动；拨备覆盖率下降须拆分为减值准备与不良贷款余额各自变动。低市净率可能反映资产质量折价，也可能只是截面现象，在缺少同报告期可比银行数据前不宜断言低估。",
+      "original_html": "<p><b>经营和估值</b><br/>需核验累计净息差回升是否伴随资产收益率或负债成本的结构变化，而非单季扰动；拨备覆盖率下降须拆分为减值准备与不良贷款余额各自变动。低市净率可能反映资产质量折价，也可能只是截面现象，在缺少同报告期可比银行数据前不宜断言低估。</p>"
+    },
+    {
+      "issuer": "A股 · 平安银行 (000001)",
+      "section": "反面证据",
+      "reasons": [
+        "unverified-ratio-mechanism",
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "反面证据 拨备覆盖率较上年末下降6.13个百分点，若由不良上升或核销消耗驱动，则风险抵补缓冲在变薄。逾期贷款占比上升的披露也削弱“资产质量稳定”的推断。",
+      "original_html": "<p><b>反面证据</b><br/>拨备覆盖率较上年末下降6.13个百分点，若由不良上升或核销消耗驱动，则风险抵补缓冲在变薄。逾期贷款占比上升的披露也削弱“资产质量稳定”的推断。</p>"
+    },
+    {
+      "issuer": "A股 · 平安银行 (000001)",
+      "section": "跟踪条件",
+      "reasons": [
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "跟踪条件 下期同口径累计净息差是否延续回升，还是回落至去年同期以下；拨备覆盖率若继续下行，减值准备与不良贷款余额谁在主导；逾期贷款占比是否继续上升。任一条件恶化即可否定当前“息差企稳、风险可控”的推理。",
+      "original_html": "<p><b>跟踪条件</b><br/>下期同口径累计净息差是否延续回升，还是回落至去年同期以下；拨备覆盖率若继续下行，减值准备与不良贷款余额谁在主导；逾期贷款占比是否继续上升。任一条件恶化即可否定当前“息差企稳、风险可控”的推理。</p>"
+    },
+    {
+      "issuer": "A股 · 齐鲁银行 (601665)",
+      "section": "入选逻辑",
+      "reasons": [
+        "bank-direction-outside-literal-claim-channel"
+      ],
+      "original_text": "入选逻辑 但研究焦点是资本缓冲与拨备的矛盾：核心一级资本充足率较上年末下降0.43个百分点，拨备覆盖率却提高4个百分点，资本消耗与拨备加厚并存，仅凭行情与累计利润无法解释。",
+      "original_html": "<p><b>入选逻辑</b><br/>但研究焦点是资本缓冲与拨备的矛盾：核心一级资本充足率较上年末下降0.43个百分点，拨备覆盖率却提高4个百分点，资本消耗与拨备加厚并存，仅凭行情与累计利润无法解释。</p>"
+    }
+  ],
+  "limitation_wording": {
+    "original": "官方PDF未提供与经营财务主题相关的逐字事实主张；仅有位置匹配或无关事实不能支持研究判断",
+    "replacement": "本期模型主张未通过经营财务主题的逐字事实核验；不表示财报未披露相关数据，位置匹配或无关事实不能支持研究判断",
+    "count": 5
+  },
+  "base_commit": "30e06b4046704f7b50badecbec9f144bb6b3f973",
+  "prior_correction": "bank-ratio-correction.json",
+  "source_report": "ai-before-narrative-correction.html",
+  "evidence_notes": {
+    "issuer": "000001",
+    "source": "a-bank-evidence.json.gz and a-research-sources.json.gz, disclosures/公告/0/正文摘录, PDF p23 (printed p22)",
+    "finding": "归档摘录含逾期贷款余额占比1.59%、较上年末上升0.25个百分点。被屏蔽的是未通过独立逐字主张核验的正文改写及因果解释，不是认定财报没有数据。",
+    "limits": "仅核对已归档摘录，未重新获取PDF或重审付费模型原答。"
+  },
+  "preserved_files_sha256": {
+    "docs/history/2026-11-13/a-bank-evidence.json.gz": "167743c6f1bde0a950d0d5707ff55abaeda044c7c2bf31958effea7a72bed9f2",
+    "docs/history/2026-11-13/a-research-sources.json.gz": "b42a26f724e5e46338fde1e424e4965098f5efb97124db93defcd710e7a9df7c",
+    "docs/history/2026-11-13/ai-bank.html": "835bb1b868304fc85d8d16f2c16a38c8b1dc9b30499476730ab2a9b0e4e24901",
+    "docs/history/2026-11-13/ai-bank-reviewed.html": "b0783f73db1e49fc7c49be14746614d33007e0f7d7c557bfb7c8fa751f03d8f3",
+    "docs/history/2026-11-13/bank-ratio-correction.json": "b16a815f1c40253b3ebd8d99858d893196a19e86c0dbe01539a29e3ef9a01c46",
+    "docs/data.json": "99b28b4efa49e0f8bc201ffc84097b8fddf9b4fb5f23b7491dfb83de4c9346da",
+    "docs/ai-status.json": "df7aefc78a91cc3ffde591e1ae4f46848681b36d884e40bd76376ba3f91b4a54"
+  }
+}
