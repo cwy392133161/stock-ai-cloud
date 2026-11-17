@@ -71,3 +71,41 @@ def correct_page(source):
                     'original_generation_id': generation[0]['content'],
                     'source_sha256': digest(source), 'corrected_sha256': digest(output),
                     'removed_paragraphs': removed, 'limitation_wording': {'original': old_limit, 'replacement': new_limit, 'count': limitation_count}}
+
+
+def reconcile_status_page(original_source, current_source, prior_audit):
+    """Replay an existing correction over a status-only main update.
+
+    Fail closed on any change outside the two publication alerts. Never revise
+    the earlier audit's source or hashes to pretend it used the newer report.
+    """
+    def without_alerts(source):
+        for name in ('market-publication-alert', 'research-publication-alert'):
+            pattern = r'<p\b[^>]*class="' + name + r'"[^>]*>.*?</p>'
+            source, count = re.subn(pattern, '', source, flags=re.S)
+            if count != 1:
+                raise ValueError('状态警示边界缺失或不唯一')
+        return source
+
+    if without_alerts(original_source) != without_alerts(current_source):
+        raise ValueError('正文或非状态内容已改变，不能只重放旧局部更正')
+    previous_output, previous = correct_page(original_source)
+    for key in previous:
+        if previous[key] != prior_audit.get(key):
+            raise ValueError('旧审计与原始更正不能逐项重放')
+    output, audit = correct_page(current_source)
+    if audit['removed_paragraphs'] != previous['removed_paragraphs']:
+        raise ValueError('待屏蔽段落与旧审计不同')
+    old_link = './history/2026-11-13/bank-narrative-correction.json'
+    new_link = './history/2026-11-13/bank-narrative-status-reconciliation.json'
+    if output.count('href="' + old_link + '"') != 1:
+        raise ValueError('更正审计链接不唯一')
+    output = output.replace('href="' + old_link + '"', 'href="' + new_link + '"', 1)
+    audit['corrected_sha256'] = digest(output)
+    audit['scope'] = 'status-only-reconciliation-of-bounded-correction-not-full-reaudit'
+    audit['previous_correction'] = {
+        'audit': 'bank-narrative-correction.json',
+        'source_sha256': previous['source_sha256'],
+        'corrected_sha256': digest(previous_output),
+    }
+    return output, audit
