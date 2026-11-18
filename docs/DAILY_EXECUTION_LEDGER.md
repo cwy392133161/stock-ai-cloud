@@ -16,7 +16,7 @@
 
 - `market_started`：在任何行情命令前确认持久化；成功为 `market_completed`，显式失败为 `market_failed`。
 - `report_reserved`：手动 report_only 的持久占用；标识取快照日期，不取运行日期。
-- `ai_started`：整个五股批次调用前确认持久化，同时永久置 `ai_ever_started=true`。它表示可能发生付费，并不声称已计费。完成/失败分别记录 `ai_completed` / `ai_failed`；部分股票完成后失败也不清除标志。
+- `ai_started`：整个五股批次调用前确认持久化，同时永久置 `ai_ever_started=true`。它表示可能发生付费，并不声称已计费。完成/失败分别记录 `ai_completed` / `ai_failed`；完成仅表示进程退出码为0，不认证每股模型请求或研究通过，部分股票完成后失败也不清除标志。
 - `publication_started`：git commit/push 前记录待发布页面哈希；push 后核对 main HEAD 等于本地提交再记录 `published`。该阶段只证明页面提交已被观察到，不证明Pages已部署、AI事实通过或每股研究成功。前面的AI/采集失败事件保持可见。
 - `interrupted_or_unknown`：最终清理可执行时记录未结束阶段。硬中断使清理也无法执行时，保留 started/completed 中间态，同样阻止下一run；不存在超时自动释放。
 - `blocked_existing_result`：无账本但已有当日市场结果，或 report_only 已有同快照生成ID时，持久记录拒绝再生成。复审冻结或历史生成ID不是重复付费的许可。
@@ -43,3 +43,5 @@
 测试使用内存原子引用模型和mock HTTP，覆盖竞争、存储失败/丢响应、AI失败、硬中断、跨日、迟到事件、已有结果、人工恢复审计和工作流接线。远端CI只编译、运行离线测试，不创建真实账本引用、不采集行情、不调用付费模型。
 
 模拟不能证明GitHub引用权限在生产可用、GitHub会准点触发、服务商只计费一次或Pages已经部署。未合并部署之前，当前线上行为不变。
+
+API依据：[Git引用创建/非强制更新与权限](https://docs.github.com/en/rest/git/refs)、[工作流GITHUB_TOKEN权限](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)。

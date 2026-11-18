@@ -226,7 +226,7 @@ def execute_ai(ledger, runner):
     except BaseException:
         ledger.transition("ai_failed")
         raise
-    ledger.transition("ai_completed")
+    ledger.transition("ai_completed", {"meaning": "process-exited-zero-not-proof-of-all-model-success"})
 
 def files_digest():
     paths = ["docs/data.json", "docs/ai.html", "docs/ai-status.json", "docs/index.html"]

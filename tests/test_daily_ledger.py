@@ -241,6 +241,20 @@ class ContextTests(unittest.TestCase):
                 runner.assert_not_called()
                 factory.return_value.write.assert_not_called()
 
+    def test_publication_unknown_is_not_recorded_as_success(self):
+        import contextlib
+        with TemporaryDirectory() as tmp, contextlib.chdir(tmp):
+            with patch.dict(os.environ, {**ENV, "RUNNER_TEMP": tmp}, clear=True), \
+                 patch.object(dl, "GitStore") as factory, \
+                 patch.object(dl, "datetime") as clock, \
+                 patch.object(dl.subprocess, "check_output", return_value=BASE):
+                clock.now.return_value = NOW
+                dl.save_context(DAY, "100:1", BASE, False)
+                factory.return_value.main_head.return_value = "b" * 40
+                with self.assertRaises(dl.FenceError):
+                    dl.main(["published"])
+                factory.return_value.write.assert_not_called()
+
     def test_manual_recovery_not_callable_by_workflow(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
             with self.assertRaises(dl.FenceError):
