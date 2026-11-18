@@ -187,12 +187,15 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(dl.context(ENV, NOW, SNAPSHOT, {})[-1])
         self.assertTrue(dl.context(ENV, NOW, {**SNAPSHOT, "updated": DAY + " 17:05"}, {})[-1])
         env = {**ENV, "REPORT_ONLY": "true", "GITHUB_EVENT_NAME": "workflow_dispatch"}
-        record = dl.context(env, NOW, SNAPSHOT, {"report_snapshot": SNAPSHOT["updated"],
-                                               "research_generation_id": "old-id"})
-        self.assertEqual(record[0], "2026-11-13")
+        with self.assertRaises(dl.FenceError):
+            dl.context(env, NOW, SNAPSHOT, {})
+        today = {**SNAPSHOT, "updated": DAY + " 17:05"}
+        record = dl.context(env, NOW, today, {"report_snapshot": today["updated"],
+                                            "research_generation_id": "old-id"})
+        self.assertEqual(record[0], DAY)
         self.assertTrue(record[-1])
         with self.assertRaises(dl.FenceError):
-            dl.context(env, NOW, {"updated": SNAPSHOT["updated"], "a_shares": []}, {})
+            dl.context(env, NOW, {"updated": today["updated"], "a_shares": []}, {})
 
     def test_cross_midnight_stops_before_ai_or_publication(self):
         with patch.object(dl, "datetime") as clock:

@@ -4,7 +4,7 @@
 
 ## 持久化与权限
 
-沿用 daily 的 `contents: write` 和临时 `github.token`，不新增账户、外部服务、密钥或 Actions 权限。每个研究行情日期使用独立 `refs/heads/execution-ledger/a-YYYY-MM-DD`，树内只有 `ledger.json`，不包含工作流。首次创建引用是占用点；引用已存在即拒绝，不依赖 cache 或 concurrency。
+沿用 daily 的 `contents: write` 和临时 `github.token`，不新增账户、外部服务、密钥或 Actions 权限。每个研究行情日期使用独立 `refs/heads/execution-ledger/a-YYYY-MM-DD`，树内只有 `ledger.json`，不包含工作流。首次创建引用是占用点；已有引用只允许下文严格证明的 skip_ai 发布向 AI 阶段交接，其余重复执行拒绝。不依赖 cache 或 concurrency。
 
 更新记录的提交只有刚读取的引用 head 一个父提交，并且只做非强制引用更新；并发写入形成不同的子提交，失败者不能快进覆盖胜者。事件带随机唯一 ID，避免同一 owner 同秒产生相同提交。每次写入还须读回确认才能进入副作用阶段。任何错误、权限拒绝、重定向、超时或未确认响应都停止，不重试写入。创建了孤立 Git 对象但未建立引用，不会授权采集或AI。
 
@@ -15,19 +15,26 @@
 ## 阶段与不确定结果
 
 - `market_started`：在任何行情命令前确认持久化；成功为 `market_completed`，显式失败为 `market_failed`。
-- `report_reserved`：手动 report_only 的持久占用；标识取快照日期，不取运行日期。
+- `report_reserved`：当日 skip_ai 成功发布后，手动 report_only 对 AI 阶段的一次性持久认领。原子更新 owner/base 并置 `ai_claimed_once=true`；旧事件保留，交接事件记录原 owner/base、账本head、发布commit与快照哈希。认领后即使尚未调用AI就崩溃，也不自动重新认领。
 - `ai_started`：整个五股批次调用前确认持久化，同时永久置 `ai_ever_started=true`。它表示可能发生付费，并不声称已计费。完成/失败分别记录 `ai_completed` / `ai_failed`；完成仅表示进程退出码为0，不认证每股模型请求或研究通过，部分股票完成后失败也不清除标志。
 - `publication_started`：git commit/push 前记录待发布页面哈希；push 后核对 main HEAD 等于本地提交再记录 `published`。该阶段只证明页面提交已被观察到，不证明Pages已部署、AI事实通过或每股研究成功。前面的AI/采集失败事件保持可见。
 - `interrupted_or_unknown`：最终清理可执行时记录未结束阶段。硬中断使清理也无法执行时，保留 started/completed 中间态，同样阻止下一run；不存在超时自动释放。
-- `blocked_existing_result`：无账本但已有当日市场结果，或 report_only 已有同快照生成ID时，持久记录拒绝再生成。复审冻结或历史生成ID不是重复付费的许可。
+- `blocked_existing_result`：采集入口无账本但已有当日市场结果时，持久记录拒绝再次采集。report_only 缺少有效 skip_ai 发布账本，或已有同快照生成ID时，直接拒绝，不凭旧报告状态新建付费许可。复审冻结或历史生成ID不是重复付费的许可。
 
 失败处理即使无法写入最终审计，前置占用仍阻止下一run。重复占用在Actions日志中可见；没有抢写原持有者的记录来“记录失败者”。获取占用失败/未知时禁止发布本次工作目录，防止把占用失败误报为行情源故障。错过窗口、收盘前等没有尝试占用的运行仍沿用原有状态警示流程。
 
-正常采集以实际北京时间日期为键，并在AI/发布前重新检查日期和窗口。运行跨午夜就停止。手动历史 report_only 沿用其既有入口，使用历史快照日期占用；不会通过更换运行日期重置同一研究的付费记录。手动及定时 rerun（attempt>1）都拒绝。开始时要求checkout提交等于最新main，避免旧排队代码自动覆盖新状态。GitHub未提供权威“应触发交易日”，所以不能判断窗口内某事件是否原本属于另一日；绝不倒填日期。
+正常采集以实际北京时间日期为键，并在AI/发布前重新检查日期和窗口。运行跨午夜就停止。report_only 必须使用当前北京时间交易工作日的新鲜快照，且在17:00至24:00窗口内；旧/异日、未来时间、非20只唯一代码或快照变更都拒绝。不会通过更换运行日期重置同一研究的付费记录。手动及定时 rerun（attempt>1）都拒绝。开始时要求checkout提交等于最新main，避免旧排队代码自动覆盖新状态。GitHub未提供权威“应触发交易日”，所以不能判断窗口内某事件是否原本属于另一日；绝不倒填日期。
 
 ## 受控恢复边界
 
-所有已存在账本，包括采集失败、skip_ai发布、AI失败、未知结果和成功发布，均不自动重新开始。因而当日先skip_ai后report_only也不会自动获准；这是保守的“一日一次流水线”取舍，不是灵活的费用配额系统。
+采集失败、AI失败、未知结果和已开始AI的发布记录不自动重新开始。唯一兼容入口是显式 skip_ai 成功发布后的当日 report_only：
+
+- 持久记录须有 `skip_ai=true`、`origin_kind=market`、`ai_ever_started=false`、`ai_claimed_once=false`，阶段历史严格为 market_started → market_completed → publication_started → published。缺字段的旧版账本、恢复备注或其他异常历史都不会推定为“从未开始AI”。
+- 发布前和发布完成记录中的 data.json 与 ai-status.json SHA256 必须均与当前文件一致，snapshot_updated 也必须相同；状态须为采集成功、行情updated、AI skipped，且没有该日研究生成ID。review-required 可保留，不因交接解除复审冻结。
+- 新run基于最新main、在同日发布窗口内，通过同一笔非强制快进更新取得 owner/base 和永久 AI 认领位；并发者只有一个能成功。写入、回读不确定时本次绝不调用AI；持久认领一旦存在，其他run、相同run再次进入或新日期都不能将它释放。
+- 认领后、实际AI调用前再次检查时间、日期和完整快照哈希。快照变化或跨午夜即停止，认领保留；这不是对已付费尝试的“解锁”。没有有效账本的历史 report_only 不再自动调用AI。
+
+若写入明确未生效，旧 published 证据可能仍存在；当前请求仍立即失败且不自动重试。之后另一次人工请求也必须重新通过全部持久证明及原子竞争，不能把前一次超时解释为安全放行。
 
 1. 停止/确认旧运行已终止，读取日期引用及每次提交，核对实际Actions步骤、已有结果、模型服务账单和缓存/归档；started不能推断为零费用。
 2. 如需恢复已产生的结果，只回读保存的原答/文件并离线审核；另行取得发布授权后恢复页面。没有原答或计费结果不明确时保持阻塞。
@@ -37,6 +44,16 @@
 4. 本实现没有自动或手动“重新付费解锁”开关。确需再次付费时必须另行明确批准并设计可审核的新尝试政策；不得删除引用或强推抹去历史。
 
 缓存继续用于复用完整回复，但不是防重依据。现有 `request_deepseek` 在同一次被占用批次内的限时重试策略没有改变，可能多次请求、产生额外费用；本方案保证的是跨run/再次进入阶段时拒绝重复，不是模型服务的 exactly-once 计费协议。直接调用旧提交/归档工作流或本地脚本不在此 daily 包装器覆盖范围内。
+
+## 版本切换与覆盖入口
+
+上线前须在 Actions 中确认旧工作流的采集/AI运行全部结束，核对其 workflow提交SHA；旧版本运行的 rerun 会继续使用旧代码，不能因main已更新就视为受到保护。需要停止旧运行时应另行取得授权，本PR不执行取消、重跑或上线操作。
+
+覆盖范围仅为实际执行新版 daily.yml → daily_ledger.py 包装器的定时采集、手动采集/skip_ai与原有 report_only 入口。新代码会拒绝 attempt>1 和非main/陈旧checkout，但不能约束没有执行这些检查的旧运行、旧版本rerun、归档工作流、直接调用ai_report.py或外部客户端。不得声称全仓防重或提供商侧 exactly-once。相同runner内部文件和GitHub账本的写权限属于信任边界；管理员修改/删除历史可以破坏保证。
+
+## 不泄密的故障诊断
+
+日志只输出允许列表中的 code、operation 和HTTP状态，不打印异常文本、token、请求头、URL参数或敏感响应体。401/403归为 permission_or_policy_denied（403也可能来自服务方限流策略，不武断认定具体权限缺失）；409/422为 conflict_or_validation，429为rate_limited。网络/5xx/响应解码不确定按读写方向区分 read_uncertain / write_uncertain；确认写入时的读取失败与不匹配分别为 readback_uncertain / readback_mismatch。所有类别均停止本次操作，不增加自动重试。
 
 ## 验证边界
 

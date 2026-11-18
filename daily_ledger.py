@@ -34,8 +34,48 @@ TRANSITIONS = {
 SHA = re.compile(r"[0-9a-f]{40}")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+DIAGNOSTIC_CODES = {
+    "policy_denied", "permission_or_policy_denied", "conflict_or_validation",
+    "rate_limited", "redirect_rejected", "http_rejected", "read_uncertain",
+    "write_uncertain", "readback_uncertain", "readback_mismatch", "invalid_response",
+    "snapshot_rejected", "handoff_denied", "already_claimed", "stale_checkout",
+    "ownership_lost", "phase_rejected", "local_io_failed", "process_failed", "invalid_state",
+}
+OPERATIONS = {"read-reference", "create-reference", "update-reference", "read-commit",
+              "read-tree", "read-blob", "create-tree", "create-commit", "confirm-write",
+              "unknown"}
+
 class FenceError(RuntimeError):
-    pass
+    def __init__(self, message, code="policy_denied", operation=None, status=None):
+        super().__init__(message)
+        self.code = code if code in DIAGNOSTIC_CODES else "policy_denied"
+        self.operation = operation if operation in OPERATIONS else None
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+
+def diagnostic(exc):
+    """Allowlisted metadata only; never print exception text or server bodies."""
+    if isinstance(exc, FenceError):
+        value = "code=" + exc.code
+        if exc.operation:
+            value += " operation=" + exc.operation
+        if exc.status is not None:
+            value += " http=" + str(exc.status)
+        return value
+    if isinstance(exc, subprocess.SubprocessError):
+        return "code=process_failed"
+    if isinstance(exc, OSError):
+        return "code=local_io_failed"
+    return "code=invalid_state"
+
+def api_operation(method, path):
+    if path.startswith("/git/ref/"):
+        return "read-reference"
+    if path.startswith("/git/refs"):
+        return "create-reference" if method == "POST" else "update-reference"
+    for part, name in (("commits", "commit"), ("trees", "tree"), ("blobs", "blob")):
+        if path.startswith("/git/" + part):
+            return ("create-" if method == "POST" else "read-") + name
+    return "unknown"
 
 def encode(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -64,19 +104,34 @@ class GitStore:
                         "X-GitHub-Api-Version": "2022-11-28"}
 
     def api(self, method, path, payload=None, missing=False):
+        operation = api_operation(method, path)
+        uncertain = "read_uncertain" if method == "GET" else "write_uncertain"
         try:
             r = self.session.request(method, self.url + path, headers=self.headers,
                                      json=payload, timeout=30, allow_redirects=False)
         except requests.RequestException:
-            raise FenceError("ledger transport result unknown; no automatic retry") from None
-        if r.status_code == 404 and missing:
+            raise FenceError("ledger transport result unknown", uncertain, operation) from None
+        status = r.status_code
+        if status == 404 and missing:
             return None
-        if r.status_code not in (200, 201):
-            raise FenceError("ledger API rejected or uncertain: HTTP " + str(r.status_code))
+        if status not in (200, 201):
+            if status in (401, 403):
+                code = "permission_or_policy_denied"
+            elif status in (409, 422):
+                code = "conflict_or_validation"
+            elif status == 429:
+                code = "rate_limited"
+            elif 300 <= status < 400:
+                code = "redirect_rejected"
+            elif status >= 500:
+                code = uncertain
+            else:
+                code = "http_rejected"
+            raise FenceError("ledger API stopped", code, operation, status)
         try:
             return r.json()
         except ValueError:
-            raise FenceError("ledger response invalid") from None
+            raise FenceError("ledger response invalid", uncertain, operation, status) from None
 
     def main_head(self):
         return self.api("GET", "/git/ref/heads/main")["object"]["sha"]
@@ -118,39 +173,91 @@ class GitStore:
         else:
             self.api("PATCH", "/git/refs/" + ref_for(day), {"sha": sha, "force": False})
         # Even a successful HTTP response is not authority to spend until read-back.
-        observed, saved = self.read(day)
+        try:
+            observed, saved = self.read(day)
+        except (FenceError, KeyError, ValueError, TypeError):
+            raise FenceError("ledger readback uncertain", "readback_uncertain", "confirm-write") from None
         if observed != sha or saved != record:
-            raise FenceError("ledger write not confirmed; stop before side effect")
+            raise FenceError("ledger write not confirmed; stop before side effect", "readback_mismatch", "confirm-write")
         return sha
 
 class Ledger:
     def __init__(self, store, day, owner, base):
         self.store, self.day, self.owner, self.base = store, valid_day(day), owner, base
 
-    def claim(self, phase, existing=False):
+    def claim(self, phase, existing=False, skip_ai=False):
         head, record = self.store.read(self.day)
         if head is not None:
-            raise FenceError("trading day already claimed; inspect durable audit, never auto-retry")
+            raise FenceError("trading day already claimed; inspect durable audit, never auto-retry", "already_claimed")
         if phase not in ("market_started", "report_reserved"):
             raise FenceError("invalid initial phase")
         phase = "blocked_existing_result" if existing else phase
         record = {"version": 1, "day": self.day, "owner": self.owner, "base": self.base,
-                  "phase": phase, "ai_ever_started": False,
+                  "phase": phase, "ai_ever_started": False, "ai_claimed_once": False,
+                  "skip_ai": skip_ai is True, "origin_kind": "market" if phase == "market_started" else "report",
                   "events": [{"phase": phase, "at": stamp(), "event_id": uuid.uuid4().hex}]}
         self.store.write(self.day, None, record, self.base)
         if existing:
             raise FenceError("published result predates ledger; refuse automatic regeneration")
         return record
 
+    def claim_report(self, snapshot, snapshot_sha256, status, status_sha256, now):
+        """Only an audited same-day skip_ai publication can hand off AI once."""
+        fresh_snapshot(snapshot, now)
+        head, record = self.store.read(self.day)
+        def denied():
+            raise FenceError("skip_ai handoff proof missing or incompatible", "handoff_denied")
+        if (not head or not record or record.get("version") != 1 or
+                record.get("day") != self.day or self.day != str(snapshot.get("updated", ""))[:10] or
+                record.get("phase") != "published" or record.get("skip_ai") is not True or
+                record.get("origin_kind") != "market" or record.get("ai_ever_started") is not False or
+                record.get("ai_claimed_once") is not False or record.get("owner") == self.owner):
+            denied()
+        events = record.get("events", [])
+        if [e.get("phase") for e in events] != [
+                "market_started", "market_completed", "publication_started", "published"]:
+            denied()
+        if not re.fullmatch(r"[0-9a-f]{64}", snapshot_sha256 or "") or not re.fullmatch(r"[0-9a-f]{64}", status_sha256 or ""):
+            denied()
+        for event in events[-2:]:
+            details = event.get("details", {})
+            hashes = details.get("files_sha256", {})
+            if (hashes.get("docs/data.json") != snapshot_sha256 or
+                    hashes.get("docs/ai-status.json") != status_sha256 or
+                    details.get("snapshot_updated") != snapshot["updated"]):
+                denied()
+        published = events[-1]["details"].get("commit")
+        if not SHA.fullmatch(published or ""):
+            denied()
+        if (status.get("snapshot") != snapshot["updated"] or
+                status.get("screening_outcome") != "success" or
+                status.get("last_screening_outcome") != "success" or
+                status.get("market_state") != "updated" or status.get("ai_step") != "skipped" or
+                (str(status.get("report_snapshot", ""))[:10] == self.day and
+                 status.get("research_generation_id"))):
+            denied()
+        updated = copy.deepcopy(record)
+        updated.update(owner=self.owner, base=self.base, phase="report_reserved", ai_claimed_once=True)
+        updated["events"].append({
+            "phase": "report_reserved", "at": stamp(), "event_id": uuid.uuid4().hex,
+            "details": {"previous_owner": record["owner"], "previous_base": record["base"],
+                        "previous_ledger_head": head, "skip_ai_publication_commit": published,
+                        "snapshot_sha256": snapshot_sha256, "snapshot_updated": snapshot["updated"]}})
+        # Both owner transfer and the permanent claim bit use the same atomic update.
+        # No local capability exists until the write AND readback have succeeded.
+        self.store.write(self.day, head, updated, self.base)
+        return updated
+
     def transition(self, phase, details=None):
         head, record = self.store.read(self.day)
         if not head or record["owner"] != self.owner or record["base"] != self.base:
-            raise FenceError("lost or invalid ownership")
+            raise FenceError("lost or invalid ownership", "ownership_lost")
         if phase not in TRANSITIONS.get(record["phase"], set()):
-            raise FenceError("transition refused: " + record["phase"] + " -> " + phase)
+            raise FenceError("transition refused", "phase_rejected")
         record = copy.deepcopy(record)
         record["phase"] = phase
         record["ai_ever_started"] = record["ai_ever_started"] or phase == "ai_started"
+        record["ai_claimed_once"] = record.get("ai_claimed_once", False) or phase == "ai_started"
         event = {"phase": phase, "at": stamp(), "event_id": uuid.uuid4().hex}
         if details is not None:
             event["details"] = details
@@ -165,6 +272,23 @@ class Ledger:
         # Do not relabel an explicit outcome, and never clear the paid fence.
         if record["phase"] not in TERMINAL:
             self.transition("interrupted_or_unknown")
+
+def fresh_snapshot(snapshot, now):
+    """Same Beijing date, not future, complete ranking, unchanged close window."""
+    try:
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("naive clock")
+        updated = snapshot["updated"]
+        parsed = datetime.strptime(updated, "%Y-%m-%d %H:%M").replace(tzinfo=CHINA)
+        local = now.astimezone(CHINA)
+        rows = snapshot["a_shares"]
+        codes = [row["代码"] for row in rows]
+        if (parsed.strftime("%Y-%m-%d %H:%M") != updated or
+                parsed.date() != local.date() or parsed > local or not is_market_ready(local) or
+                len(codes) != 20 or len(set(codes)) != 20 or not all(codes)):
+            raise ValueError("snapshot rejected")
+    except (ValueError, KeyError, TypeError):
+        raise FenceError("snapshot not eligible for same-day handoff", "snapshot_rejected") from None
 
 def context(env, now, snapshot, status):
     if env.get("GITHUB_REF") != "refs/heads/main":
@@ -182,10 +306,7 @@ def context(env, now, snapshot, status):
     snapshot_day = str(snapshot.get("updated", ""))[:10]
     day = valid_day(snapshot_day if report else local_day)
     if report:
-        rows = snapshot.get("a_shares", [])
-        codes = [row.get("代码") for row in rows]
-        if len(codes) != 20 or len(set(codes)) != 20 or not all(codes):
-            raise FenceError("incomplete A-share snapshot")
+        fresh_snapshot(snapshot, now)
     existing = (not report and snapshot_day == day) or (
         report and str(status.get("report_snapshot", ""))[:10] == day and
         bool(status.get("research_generation_id")))
@@ -206,8 +327,8 @@ def record_recovery(store, day, expected, recovery_commit):
     store.write(day, expected, updated, record["base"])
     return updated
 
-def execute_market(ledger, commands, runner, on_claim=lambda: None):
-    ledger.claim("market_started")
+def execute_market(ledger, commands, runner, on_claim=lambda: None, skip_ai=False):
+    ledger.claim("market_started", skip_ai=skip_ai)
     on_claim()
     try:
         for command in commands:
@@ -238,9 +359,10 @@ def local_file():
         raise FenceError("RUNNER_TEMP missing")
     return Path(root) / "daily-execution-context.json"
 
-def save_context(day, owner, base, report):
+def save_context(day, owner, base, report, snapshot_sha256=None):
     # Metadata only; tokens/keys/prompt/response text are never persisted.
-    local_file().write_text(encode({"day": day, "owner": owner, "base": base, "report": report}))
+    local_file().write_text(encode({"day": day, "owner": owner, "base": base, "report": report,
+                                      "snapshot_sha256": snapshot_sha256}))
 
 def loaded(store):
     d = json.loads(local_file().read_text())
@@ -251,7 +373,7 @@ def loaded(store):
 
 def window(d):
     now = datetime.now(CHINA)
-    if not d["report"] and (not is_market_ready(now) or now.date().isoformat() != d["day"]):
+    if not is_market_ready(now) or now.date().isoformat() != d["day"]:
         raise FenceError("execution crossed publication window/date; do not continue")
 
 def main(argv=None):
@@ -280,21 +402,24 @@ def main(argv=None):
         if (command == "run-market") == report:
             raise FenceError("wrong entry point")
         if store.main_head() != base:
-            raise FenceError("checkout is stale relative to main; do not collect or spend")
+            raise FenceError("checkout is stale relative to main; do not collect or spend", "stale_checkout")
         ledger = Ledger(store, day, owner, base)
         print("Daily execution audit: refs/" + ref_for(day) + "; owner=" + owner, flush=True)
         # No local ownership context is created on a lost/ambiguous acquisition.
-        if existing:
-            ledger.claim("report_reserved" if report else "market_started", existing=True)
+        if existing and not report:
+            ledger.claim("market_started", existing=True)
         if command == "run-market":
             execute_market(ledger,
                            [[sys.executable, name] for name in
                             ("picker.py", "trend_audit.py", "a_share_history.py")],
                            subprocess.run,
-                           lambda: save_context(day, owner, base, report))
+                           lambda: save_context(day, owner, base, report),
+                           skip_ai=os.getenv("SKIP_AI") == "true")
             return 0
-        ledger.claim("report_reserved")
-        save_context(day, owner, base, report)
+        digest = hashlib.sha256(Path("docs/data.json").read_bytes()).hexdigest()
+        status_digest = hashlib.sha256(Path("docs/ai-status.json").read_bytes()).hexdigest()
+        ledger.claim_report(snapshot, digest, status, status_digest, datetime.now(CHINA))
+        save_context(day, owner, base, report, digest)
     ledger, d = loaded(store)
     if command == "finish":
         ledger.finish()
@@ -304,20 +429,27 @@ def main(argv=None):
         snapshot = json.loads(Path("docs/data.json").read_text())
         if str(snapshot.get("updated", ""))[:10] != d["day"]:
             raise FenceError("AI input date differs from claimed date")
+        if d["report"]:
+            fresh_snapshot(snapshot, datetime.now(CHINA))
+            digest = hashlib.sha256(Path("docs/data.json").read_bytes()).hexdigest()
+            if digest != d.get("snapshot_sha256"):
+                raise FenceError("snapshot changed after handoff", "snapshot_rejected")
         execute_ai(ledger, subprocess.run)
     elif command == "before-publish":
-        ledger.transition("publication_started", {"files_sha256": files_digest()})
+        ledger.transition("publication_started", {"files_sha256": files_digest(),
+                                                   "snapshot_updated": json.loads(Path("docs/data.json").read_text()).get("updated")})
     elif command == "published":
         sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         if not SHA.fullmatch(sha) or store.main_head() != sha:
             raise FenceError("publication result unknown; manual reconciliation required")
-        ledger.transition("published", {"commit": sha, "files_sha256": files_digest()})
+        ledger.transition("published", {"commit": sha, "files_sha256": files_digest(),
+                                        "snapshot_updated": json.loads(Path("docs/data.json").read_text()).get("updated")})
     return 0
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (FenceError, KeyError, ValueError, OSError, subprocess.SubprocessError) as exc:
+    except (FenceError, KeyError, ValueError, TypeError, AttributeError, OSError, subprocess.SubprocessError) as exc:
         # Do not dump response bodies, env, credentials or persisted research.
-        print("::error::daily execution fence stopped: " + type(exc).__name__)
+        print("::error::daily execution fence stopped: " + diagnostic(exc))
         raise SystemExit(1)
