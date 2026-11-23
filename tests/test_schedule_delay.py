@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import market_schedule
 import publish_guard
@@ -17,6 +17,73 @@ CST = timezone(timedelta(hours=8))
 
 
 class ScheduleDecisionTests(unittest.TestCase):
+    def test_on_time_start_waits_until_same_day_close(self):
+        first = datetime(2026, 11, 23, 12, 30, tzinfo=CST)
+        close = first.replace(hour=17, minute=0)
+        wait = Mock()
+        admission = market_schedule.wait_for_close(Mock(side_effect=[first, close]), wait, "1")
+        wait.assert_called_once_with(4.5 * 3600)
+        self.assertEqual(admission, "2026-11-23")
+        self.assertFalse(market_schedule.scheduling_decision(
+            first, "schedule", "1", admission=admission)["market_ready"])
+        self.assertTrue(market_schedule.scheduling_decision(
+            close, "schedule", "1", admission=admission)["market_ready"])
+
+    def test_replay_observed_trigger_delays_with_single_earlier_cron(self):
+        published = ("2026-11-16T19:33:06+00:00", "2026-11-17T18:31:45+00:00",
+                     "2026-11-18T18:00:06+00:00", "2026-11-19T18:14:10+00:00",
+                     "2026-11-20T17:45:39+00:00")
+        for value in published:
+            with self.subTest(created_at=value):
+                old = datetime.fromisoformat(value)
+                self.assertFalse(market_schedule.scheduling_decision(old, "schedule", "1")["market_ready"])
+                delayed = old - timedelta(hours=4, minutes=40)
+                skip_wait = Mock()
+                admission = market_schedule.wait_for_close(lambda: delayed, skip_wait, "1")
+                skip_wait.assert_not_called()
+                self.assertTrue(market_schedule.scheduling_decision(
+                    delayed, "schedule", "1", admission=admission)["market_ready"])
+                self.assertEqual(admission, old.date().isoformat())
+
+    def test_wait_gate_rejects_midnight_weekend_and_reruns_without_sleep(self):
+        for day, hour, minute, attempt, state in (
+            (23, 0, 0, "1", "schedule_missed_window"),
+            (23, 12, 29, "1", "schedule_missed_window"),
+            (21, 15, 0, "1", "schedule_missed_window"),
+            (23, 12, 30, "2", "schedule_repeat_blocked"),
+            (23, 12, 30, "", "schedule_invalid_context"),
+        ):
+            with self.subTest(day=day, hour=hour, minute=minute, attempt=attempt):
+                clock = lambda: datetime(2026, 11, day, hour, minute, tzinfo=CST)
+                wait = Mock()
+                self.assertEqual(market_schedule.wait_for_close(clock, wait, attempt), state)
+                wait.assert_not_called()
+
+    def test_wait_overshoot_and_stale_admission_cannot_roll_forward(self):
+        first = datetime(2026, 11, 23, 14, 0, tzinfo=CST)
+        tomorrow = datetime(2026, 11, 24, 17, 10, tzinfo=CST)
+        wait = Mock()
+        self.assertEqual(market_schedule.wait_for_close(Mock(side_effect=[first, tomorrow]), wait, "1"),
+                         "schedule_missed_window")
+        self.assertEqual(market_schedule.scheduling_decision(
+            tomorrow, "schedule", "1", admission="2026-11-23")["schedule_state"], "schedule_missed_window")
+        self.assertEqual(market_schedule.scheduling_decision(
+            tomorrow, "schedule", "1", admission="")["schedule_state"], "schedule_invalid_context")
+        self.assertTrue(market_schedule.scheduling_decision(
+            tomorrow, "workflow_dispatch", "1", admission="")["market_ready"])
+
+    def test_actions_wait_publishes_same_day_gate_output(self):
+        initial = datetime(2026, 11, 23, 16, 59, tzinfo=CST)
+        with TemporaryDirectory() as tmp:
+            target = Path(tmp) / "outputs"
+            with patch.dict(os.environ, {
+                "GITHUB_EVENT_NAME": "schedule", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(target)
+            }, clear=True), patch.object(market_schedule, "datetime") as clock, patch.object(market_schedule, "sleep") as wait:
+                clock.now.side_effect = [initial, initial.replace(hour=17, minute=0)]
+                self.assertEqual(market_schedule.prepare_main(), 0)
+            wait.assert_called_once_with(60)
+            self.assertEqual(target.read_text(), "schedule_admission=2026-11-23\n")
+
     def test_recorded_production_delays_fail_closed(self):
         for value in ("2026-11-11T17:05:21+00:00", "2026-11-12T17:34:04+00:00"):
             decision = market_schedule.scheduling_decision(datetime.fromisoformat(value), "schedule", "1")
@@ -163,7 +230,7 @@ class SchedulePublicationTests(unittest.TestCase):
     def test_workflow_fails_only_after_publishing_diagnostics_and_does_not_add_triggers(self):
         text = (ROOT / ".github/workflows/daily.yml").read_text()
         self.assertEqual(text.count('cron:'), 1)
-        self.assertIn('cron: "10 9 * * 1-5"', text)
+        self.assertIn('cron: "30 4 * * 1-5"', text)
         self.assertNotIn("repository_dispatch:", text)
         self.assertNotIn("workflow_run:", text)
         self.assertIn("SCHEDULE_STATE: ${{ steps.trading_day.outputs.schedule_state }}", text)
@@ -172,6 +239,16 @@ class SchedulePublicationTests(unittest.TestCase):
         self.assertEqual(text.count("steps.trading_day.outputs.market_ready == 'true'"), 1)
         # PDF tooling, paid-response cache restore and generation use the same eligibility gate.
         self.assertEqual(text.count("inputs.report_only || steps.screening.outcome == 'success'"), 3)
+        wait_job = text[text.index("  prepare:"):text.index("  screen:")]
+        self.assertIn("contents: read", wait_job)
+        self.assertIn("timeout-minutes: 280", wait_job)
+        self.assertIn("if: github.event_name == 'schedule'", wait_job)
+        self.assertIn("python3 market_schedule.py --wait-for-close", wait_job)
+        self.assertNotIn("group: daily-screening", wait_job)
+        self.assertNotIn("secrets.", wait_job)
+        self.assertIn("needs.prepare.result == 'success' || github.event_name == 'workflow_dispatch'", text)
+        self.assertIn("SCHEDULE_ADMISSION: ${{ needs.prepare.outputs.schedule_admission }}", text)
+        self.assertLess(text.index("git ls-remote --exit-code origin refs/heads/main"), text.index("python picker.py"))
 
     def test_actual_final_workflow_check_marks_missed_or_repeated_run_red(self):
         text = (ROOT / ".github/workflows/daily.yml").read_text()
