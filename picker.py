@@ -22,7 +22,7 @@ from pathlib import Path
 
 from market_freshness import validate_delayed_hk_times, validate_eastmoney_a_times
 from tencent_market import fetch_tencent_a
-from market_transport import EastmoneyBudget, ProviderCooldown
+from market_transport import CollectionDeadline, EastmoneyBudget, ProviderCooldown
 from market_quality import MarketDataQualityError, numeric_column, validate_market_data
 from peer_valuation import industry_benchmarks, safe_number
 from peer_fundamentals import candidate_pool
@@ -142,7 +142,10 @@ def fetch_em_clist(host, fs, market, get=None):
     if pages > 200:
         raise ValueError("东财分页不完整或异常：页数超过安全上限")
     for page in range(2, pages + 1):
-        time.sleep(_page_delay())
+        if isinstance(get, EastmoneyBudget):
+            get.wait(time.sleep, _page_delay())
+        else:
+            time.sleep(_page_delay())
         params["pn"] = str(page)
         page_total, diff = page_data()
         if page_total != total or len(diff) != min(page_size, total - len(rows)):
@@ -174,7 +177,10 @@ def fetch_em_market(label, hosts, fs, market, get=None):
     last_err = None
     for j, host in enumerate(hosts):
         if j > 0:
-            time.sleep(10)
+            if isinstance(get, EastmoneyBudget):
+                get.wait(time.sleep, 10)
+            else:
+                time.sleep(10)
         try:
             # Delayed HK pagination occasionally times out; retry the page,
             # not the entire universe. Existing AKShare transport is bounded
@@ -193,7 +199,8 @@ def fetch_em_market(label, hosts, fs, market, get=None):
             raise
         except Exception as e:  # noqa: BLE001
             last_err = e
-            print(f"[{label}] 服务器 {host or 'push2'} 失败：{str(e)[:150]}", flush=True)
+            detail = type(e).__name__ if isinstance(e, requests.RequestException) else str(e)[:150]
+            print(f"[{label}] 服务器 {host or 'push2'} 失败：{detail}", flush=True)
     raise RuntimeError(f"东财直连全部服务器失败：{last_err}")
 
 
@@ -207,7 +214,7 @@ def _ak_em_single_get(url, **kwargs):
 def _fetch_a_em_market(label, hosts, fs):
     """A股全字段、限流即停；AKShare只作传输，不是独立备用数据源。"""
     get = _ak_em_single_get if ak is not None else requests.get
-    budget = EastmoneyBudget(get)
+    budget = EastmoneyBudget(get, deadline=CollectionDeadline("东财", 300))
     try:
         frame = fetch_em_market(label, hosts, fs, "A", get=budget)
         frame = _standardize(frame)
@@ -528,9 +535,13 @@ def build_a_snapshot(frame, updated, *, published_codes=None):
 def main():
     from a_share_history import archive_close
 
-    updated = datetime.now(CST).strftime("%Y-%m-%d %H:%M")
+    started = datetime.now(CST)
     frame = fetch_a_market("A股", EM_HOSTS_A, EM_FS_A)
     collected_at = datetime.now(CST)
+    if (started.date() != collected_at.date() or
+            frame.attrs["quality"].get("报价日期") != collected_at.date().isoformat()):
+        raise ValueError("采集或报价日期不一致，保留已发布的 A 股榜单")
+    updated = started.strftime("%Y-%m-%d %H:%M")
     snapshot, ranked = build_a_snapshot(frame, updated)
     print(f"A 股候选 {len(frame)} 只，入选 {len(snapshot['a_shares'])} 只", flush=True)
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")

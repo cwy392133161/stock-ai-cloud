@@ -75,9 +75,19 @@ jobs:
         if: ${{ !inputs.report_only && steps.trading_day.outputs.market_ready == 'true' }}
         continue-on-error: true
         run: |
-          python picker.py
-          python trend_audit.py
-          python a_share_history.py
+          bounded_step() {
+            local limit="$1" script="$2" status
+            timeout --kill-after=10s "$limit" python "$script" || {
+              status=$?
+              if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+                echo "::error::$script 超过 ${limit} 上限，停止本次选股发布。"
+              fi
+              return "$status"
+            }
+          }
+          bounded_step 16m picker.py
+          bounded_step 12m trend_audit.py
+          bounded_step 5m a_share_history.py
 
       - name: 选股失败时恢复已发布的榜单与快照
         if: ${{ steps.screening.outcome == 'failure' }}

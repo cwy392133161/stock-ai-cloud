@@ -1,5 +1,7 @@
 """The live source check must never publish or invoke paid AI."""
 from pathlib import Path
+import subprocess
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,19 @@ class WorkflowSafetyTests(unittest.TestCase):
         daily = (ROOT / ".github/workflows/daily.yml").read_text(encoding="utf-8")
         self.assertIn('snapshot["a_shares"]', daily)
         self.assertNotIn("hk_shares", daily)
+
+    def test_collection_timeout_stops_before_audits_and_preserves_rollback_path(self):
+        daily = (ROOT / ".github/workflows/daily.yml").read_text(encoding="utf-8")
+        step = next(s for s in daily.split("      - name: ") if "id: screening" in s)
+        commands = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        fake_timeout = 'timeout() { echo "$4"; return 124; }\n'
+        run = subprocess.run(["bash", "-e", "-c", fake_timeout + commands],
+                             capture_output=True, text=True, check=False)
+        self.assertEqual(run.returncode, 124, run.stderr)
+        self.assertIn("picker.py 超过 16m 上限", run.stdout)
+        self.assertNotIn("trend_audit.py", run.stdout)
+        self.assertIn("steps.screening.outcome == 'failure'", daily)
+        self.assertIn("git restore -- docs/index.html docs/data.json", daily)
 
 
 if __name__ == "__main__":

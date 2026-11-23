@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 from market_freshness import a_quote_cutoff
 from market_quality import validate_market_data
+from market_transport import CollectionDeadline
 
 CST = timezone(timedelta(hours=8))
 RANK_URL = "https://proxy.finance.qq.com/cgi/cgi-bin/rank/hs/getBoardRankList"
@@ -109,50 +110,80 @@ def parse_quotes(text, expected, observed):
     return result
 
 
-def fetch_tencent_a(get=None, pause=time.sleep, now=None):
-    if get is None:
-        with requests.Session() as session:
-            requests_used = 0
-            def bounded_get(url, **kwargs):
-                nonlocal requests_used
-                for attempt in range(2):
-                    if requests_used >= 240:
-                        raise RuntimeError("腾讯请求预算已耗尽")
-                    requests_used += 1
-                    try:
-                        response = session.get(url, **kwargs)
-                        if response.status_code == 429:
-                            raise RuntimeError("腾讯限流，本轮停止")
-                        response.raise_for_status()
-                        return response
-                    except (requests.Timeout, requests.ConnectionError, requests.HTTPError):
-                        if attempt:
-                            raise
-                        pause(3)
-            return fetch_tencent_a(get=bounded_get, pause=pause, now=now)
+def fetch_tencent_a(get=None, pause=time.sleep, now=None, *, clock=time.monotonic):
     started = now or datetime.now(CST)
-    if started.tzinfo is None:
+    if started.utcoffset() is None:
         raise ValueError("采集时间必须包含时区")
+    deadline = CollectionDeadline("腾讯", 600, clock)
+    if get is not None:
+        def checked_get(url, *, timeout, **kwargs):
+            response = get(url, timeout=deadline.timeout(timeout), **kwargs)
+            deadline.remaining()
+            return response
+        return _collect_tencent_a(checked_get, pause, now, started, deadline)
+
+    with requests.Session() as session:
+        requests_used = 0
+
+        def bounded_get(url, *, timeout, **kwargs):
+            nonlocal requests_used
+            for attempt in range(2):
+                if requests_used >= 240:
+                    raise RuntimeError("腾讯请求预算已耗尽")
+                bounded_timeout = deadline.timeout(timeout)
+                requests_used += 1
+                try:
+                    response = session.get(url, timeout=bounded_timeout, **kwargs)
+                    status = response.status_code
+                    if 400 <= status < 500 and status != 408:
+                        raise RuntimeError(f"腾讯 HTTP {status}，停止本轮请求")
+                    response.raise_for_status()
+                    deadline.remaining()
+                    return response
+                except (requests.Timeout, requests.ConnectionError, requests.HTTPError):
+                    if attempt:
+                        raise
+                    deadline.wait(pause, 3)
+
+        return _collect_tencent_a(bounded_get, pause, now, started, deadline)
+
+
+def _collect_tencent_a(get, pause, now, started, deadline):
     day = started.astimezone(CST).date()
-    rank = get_rank_rows(get, pause)
+
+    def paced_wait(seconds):
+        deadline.wait(pause, seconds)
+
+    rank = get_rank_rows(get, paced_wait)
     rows = []
+    stale_active = 0
     for offset in range(0, len(rank), BATCH_SIZE):
-        pause(1)
+        paced_wait(1)
+        observed = now or datetime.now(CST)
+        if observed.astimezone(CST).date() != day:
+            raise ValueError("腾讯行情采集跨日，拒绝混合报价")
         batch = rank[offset:offset+BATCH_SIZE]
         codes = [r["code"] for r in batch]
         response = get(QUOTE_URL + ",".join(codes), timeout=(5, 20))
         response.raise_for_status()
         # Tencent's quote text uses GBK, not the HTTP default ISO-8859-1.
         response.encoding = "gbk"
-        quotes = parse_quotes(response.text, codes, now or datetime.now(CST))
+        observed = now or datetime.now(CST)
+        if observed.astimezone(CST).date() != day:
+            raise ValueError("腾讯行情采集跨日，拒绝混合报价")
+        quotes = parse_quotes(response.text, codes, observed)
+        stale_active += sum(row["成交额"] > 0 and not row["报价当日"] for row in quotes.values())
+        # Even if every remaining security is active and fresh, the final
+        # active denominator can never exceed the full universe.
+        if 20 * stale_active > len(rank):
+            raise ValueError("腾讯新鲜报价已无法达到95%门槛，停止剩余批次")
         print(f"腾讯批量行情：{min(offset+BATCH_SIZE, len(rank))}/{len(rank)}", flush=True)
         for original in batch:
             row = quotes[original["code"]]
             row["60日涨跌幅"] = number(original.get("zdf_d60"))
             row["年初至今涨跌幅"] = number(original.get("zdf_y"))
             rows.append(row)
-    if now is None and (datetime.now(CST)-started).total_seconds() > 600:
-        raise ValueError("腾讯行情采集跨度超过10分钟，拒绝混合过长时间窗口")
+    deadline.remaining()
     frame = pd.DataFrame(rows)
     quality = validate_market_data(frame, "A股", "腾讯全市场+批量原始行情/动态PE")
     active = frame["成交额"] > 0
