@@ -14,6 +14,7 @@ BANK_RATIO_RULES = (
     "仅在其他条件不变且口径可比时，准备余额增加会提高拨备覆盖率，"
     "不良贷款余额增加会降低拨备覆盖率；反向变化的方向相反。"
     "贷款总额变化不能直接解释拨备覆盖率变化。"
+    "核销可同时减少贷款损失准备与不良贷款余额，不能把核销单向等同于覆盖率下降或缓冲变薄。"
     "这些是公式关系，不是任何一家银行的实际成因；"
     "须核验同口径准备与不良贷款余额、核销及计提等变动，不能仅凭比率推断原因。"
 )
@@ -23,12 +24,13 @@ _TRADITIONAL = str.maketrans({
     "準": "准", "損": "损", "總": "总", "縮": "缩", "擴": "扩", "張": "张",
     "減": "减", "導": "导", "來": "来", "於": "于", "區": "区", "釋": "释",
     "貢": "贡", "獻": "献", "驅": "驱", "動": "动", "緩": "缓", "變": "变",
+    "銷": "销", "計": "计", "處": "处", "佔": "占", "續": "续",
 })
 _COVERAGE = re.compile(r"拨备覆盖率|准备覆盖率|拨贷覆盖率")
 _LOAN_DENOMINATOR = re.compile(
     r"(?<!不良)贷款(?:总额|总量|余额|分母|扩张|扩展|增长|增加|下降|减少|收缩)|贷款规模"
 )
-_COMPONENT = re.compile(r"准备|拨备余额|不良(?:贷款)?(?:余额|规模)|不良贷款")
+_COMPONENT = re.compile(r"准备|拨备余额|不良|核销|计提|分子|分母")
 _RELATION = re.compile(r"来自|源于|导致|由于|因为|因而|成因|归因|区分|解释|贡献|驱动|带来|使得|反映|取决于")
 _DIRECTION = re.compile(r"上升|下降|增加|减少|增长|收缩|扩张|提高|降低|放缓|加快|改善|恶化")
 
@@ -53,4 +55,32 @@ def blocks_bank_ratio_inference(text):
         # without a causal verb (e.g. coverage down / NPL balance down).
         if len(_DIRECTION.findall(sentence)) >= 2 and _COMPONENT.search(sentence):
             return True
+    return False
+
+
+# Bank directions belong to the verified claim channel, even without numbers.
+BANK_FINANCIAL_DIRECTION = re.compile(
+    r"(?:逾期(?:贷款)?(?:余额)?(?:占比|比例|率)?|不良(?:贷款)?(?:余额|率)?|"
+    r"拨备覆盖率|净息差|核心一级资本充足率)"
+    r".{0,16}?(?P<direction>上升|下降|提高|降低|增长|减少|增加|回升|回落|下滑|持平|改善|恶化|微升)"
+)
+
+
+def blocks_bank_fact_assertion(text):
+    """Bounded direction screen for model prose, never for verified PDF quotes.
+
+    A question about continued overdue growth still presupposes earlier growth.
+    No literal claim is certified here; this is conservative exclusion only.
+    """
+    normalized = re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(text or ""))).translate(_TRADITIONAL)
+    for clause in re.split(r"[。！？!?；;\n,，:：]|(?:但是|但|然而|实际上|事实上|同时|此外|并且|而且)", normalized):
+        for match in BANK_FINANCIAL_DIRECTION.finditer(clause):
+            if "逾期" in match.group() and "继续" in match.group():
+                return True
+            if not re.search(
+                r"(?:若|如果|假设|倘若|是否|能否|未来|下期|下一期|需核验|须核验|"
+                r"待核实|待验证|需要核验|需要确认|不能证明|无法认定|不能说明|"
+                r"不足以说明|无法证明|不代表|不意味着|并不意味着|不应推断|不能推断|不能认定).{0,55}$",
+                clause[:match.start("direction")]):
+                return True
     return False

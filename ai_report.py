@@ -12,7 +12,8 @@ from decimal import Decimal
 
 from disclosures import HK, STATIC, fetch_disclosures
 from bank_evidence import is_bank, with_bank_classification
-from bank_ratio_guard import BANK_RATIO_RULES, BANK_RATIO_SOURCE, blocks_bank_ratio_inference
+from bank_ratio_guard import (BANK_RATIO_RULES, BANK_RATIO_SOURCE,
+                              blocks_bank_ratio_inference, blocks_bank_fact_assertion)
 from filing_text import enrich_frozen_bank_filings, read_filings, trusted
 from financial_timing import provider_date
 from finance import fetch_financial
@@ -343,7 +344,7 @@ def review_research_hypotheses(text, bank_context=False):
             if bank_context and re.search(r"现金|回款", cleaned) and re.search(
                     r"收入|营收|盈利|利润|质量|异常|背离", cleaned):
                 blocked = True
-            if bank_context and blocks_bank_ratio_inference(cleaned):
+            if bank_context and (blocks_bank_ratio_inference(cleaned) or blocks_bank_fact_assertion(cleaned)):
                 blocked = True
             # A hedge AFTER an unsupported factual assertion does not
             # retroactively convert it into a hypothesis. For instance,
@@ -455,7 +456,7 @@ def assess_model_research(content, brief, notices):
         result["状态"] = "条件性研究（原文事实证据不足）"
         result["证据级别"] = "基于已核对报告期财务数据的条件性研究；不能推断无依据的经营事实"
         if not relevant_claims:
-            result["限制"] = "官方PDF未提供与经营财务主题相关的逐字事实主张；仅有位置匹配或无关事实不能支持研究判断"
+            result["限制"] = "本期模型主张未通过经营财务主题的逐字事实核验；不表示财报未披露相关数据，位置匹配或无关事实不能支持研究判断"
         elif valid_sections < 4:
             result["限制"] = "部分研究章节信息不足，未提供完整逐字证据研究"
     return result
