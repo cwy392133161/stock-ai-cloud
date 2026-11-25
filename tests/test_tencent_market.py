@@ -2,6 +2,8 @@ import unittest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock, patch
 import picker
+import requests
+from market_transport import ProviderCooldown
 from test_market_quality import quotes
 import tencent_market as tx
 
@@ -76,8 +78,65 @@ class TencentTests(unittest.TestCase):
         self.assertEqual(frame.attrs["quality"]["当日报价数"],3500)
 
     def test_stale_full_market_is_rejected(self):
-        with self.assertRaises(ValueError):
-            tx.fetch_tencent_a(get=self.make_get(stale=True),pause=lambda _:None,now=NOW)
+        get = Mock(side_effect=self.make_get(stale=True))
+        with self.assertRaisesRegex(ValueError, "无法达到95%"):
+            tx.fetch_tencent_a(get=get,pause=lambda _:None,now=NOW)
+        quote_calls = [call for call in get.call_args_list if call.args[0].startswith(tx.QUOTE_URL)]
+        # 200 stale active rows already exceed 5% of all 3,500 listings.
+        self.assertEqual(len(quote_calls), 2)
+
+    def test_exact_five_percent_stale_still_runs_full_validation(self):
+        original = self.make_get()
+        stale = {f"sz{i:06d}" for i in range(1,176)}
+        def get(url, **kwargs):
+            response = original(url, **kwargs)
+            if url.startswith(tx.QUOTE_URL):
+                codes = url.split("q=")[1].split(",")
+                response.text = "".join(quote(c, "20261109150000" if c in stale else
+                                               "20261110150000") for c in codes)
+            return response
+        mocked = Mock(side_effect=get)
+        frame = tx.fetch_tencent_a(get=mocked,pause=lambda _:None,now=NOW)
+        self.assertEqual(len(frame), 3500)
+        self.assertEqual(frame.attrs["quality"]["当日报价数"], 3325)
+        self.assertEqual(mocked.call_count, 18 + 35)
+
+    def test_elapsed_rank_response_never_starts_more_requests(self):
+        clock = Mock(side_effect=[0, 0, 600])
+        get = Mock(side_effect=self.make_get())
+        sleep = Mock()
+        with self.assertRaisesRegex(ProviderCooldown, "时间上限"):
+            tx.fetch_tencent_a(get=get,pause=sleep,now=NOW,clock=clock)
+        get.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_access_denial_limits_and_other_permanent_errors_do_not_retry(self):
+        for status in (401, 403, 404, 429):
+            with self.subTest(status=status), patch.object(tx.requests, "Session") as session:
+                response = requests.Response()
+                response.status_code = status
+                get = session.return_value.__enter__.return_value.get
+                get.return_value = response
+                sleep = Mock()
+                with self.assertRaisesRegex(RuntimeError, f"HTTP {status}"):
+                    tx.fetch_tencent_a(pause=sleep, now=NOW)
+                get.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_transient_retry_wait_respects_remaining_time(self):
+        response = requests.Response()
+        response.status_code = 503
+        # 2 seconds left: do not perform the existing 3 second retry wait.
+        clock = Mock(side_effect=[0, 597, 598])
+        sleep = Mock()
+        with patch.object(tx.requests, "Session") as session:
+            get = session.return_value.__enter__.return_value.get
+            get.return_value = response
+            with self.assertRaisesRegex(ProviderCooldown, "剩余"):
+                tx.fetch_tencent_a(pause=sleep,now=NOW,clock=clock)
+        get.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(get.call_args.kwargs["timeout"], (3, 3))
 
     def test_duplicate_or_missing_rank_pages_rejected(self):
         for options in [{"duplicate":True},{"missing":True}]:
