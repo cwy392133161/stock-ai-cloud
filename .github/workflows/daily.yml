@@ -74,10 +74,10 @@ jobs:
         id: screening
         if: ${{ !inputs.report_only && steps.trading_day.outputs.market_ready == 'true' }}
         continue-on-error: true
-        run: |
-          python picker.py
-          python trend_audit.py
-          python a_share_history.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SKIP_AI: ${{ inputs.skip_ai }}
+        run: python daily_ledger.py run-market
 
       - name: 选股失败时恢复已发布的榜单与快照
         if: ${{ steps.screening.outcome == 'failure' }}
@@ -104,7 +104,9 @@ jobs:
           AI_BASE_URL: ${{ vars.AI_BASE_URL }}
           AI_MODEL: ${{ vars.AI_MODEL }}
           AI_CACHE_DIR: ${{ runner.temp }}/research-cache
-        run: python ai_report.py
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORT_ONLY: ${{ inputs.report_only }}
+        run: python daily_ledger.py run-ai
 
       - uses: actions/cache/save@v4
         if: always() && (steps.deep_research.outcome == 'success' || steps.deep_research.outcome == 'failure')
@@ -136,7 +138,10 @@ jobs:
         run: python publish_guard.py
 
       - name: 提交结果（仅当页面有变化）
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          python daily_ledger.py before-publish
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
           git add docs/index.html docs/data.json docs/ai-status.json
@@ -144,6 +149,7 @@ jobs:
           if [ -f docs/ai.html ]; then git add docs/ai.html; fi
           git diff --cached --quiet || git commit -m "更新选股榜 $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
+          python daily_ledger.py published
 
       - name: 标记手动报告生成失败
         if: ${{ inputs.report_only && steps.deep_research.outcome != 'success' }}
@@ -166,3 +172,9 @@ jobs:
               print("::error::最近一次行情更新失败后尚无更新的成功快照。跳过选股不能证明恢复；请勿将旧行情当作本期结果。")
               raise SystemExit(1)
           PY
+
+      - name: 保存未结束执行的审计状态
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python daily_ledger.py finish
